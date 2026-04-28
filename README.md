@@ -142,8 +142,9 @@ Hazards appear on both the dashboard map and the guest map (filtered by floor). 
 3. Both original and translated text sent via relay
 4. Dashboard chat panel shows: original language label + English translation
 5. Responder selects guest from dropdown and types reply
-6. Reply sent via relay to guest's chat screen
-7. Guest's phone speaks the reply via text-to-speech
+   
+7. Reply sent via relay to guest's chat screen
+8. Guest's phone speaks the reply via text-to-speech
 
 ---
 
