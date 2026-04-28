@@ -1,0 +1,82 @@
+{
+  "id": "./crisis_dashboard.html",
+  "name": "Crisis Response System",
+  "short_name": "CrisisResp",
+  "description": "Real-time emergency AI responder dashboard. Monitor live distress signals, SOS alerts, and vibration guidance tokens — even offline.",
+  "start_url": "./crisis_dashboard.html?source=pwa",
+  "scope": "./",
+
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui", "browser"],
+
+  "orientation": "any",
+  "background_color": "#080c12",
+  "theme_color": "#080c12",
+  "lang": "en-US",
+  "dir": "ltr",
+  "categories": ["utilities", "productivity", "medical"],
+
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+
+  "screenshots": [
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "label": "Crisis Response Dashboard — Live Signal Feed",
+      "form_factor": "wide"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "label": "Crisis Response — Mobile View",
+      "form_factor": "narrow"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Live Dashboard",
+      "short_name": "Dashboard",
+      "description": "Open the live crisis response signal feed",
+      "url": "./crisis_dashboard.html?shortcut=dashboard",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "SOS Activate",
+      "short_name": "SOS",
+      "description": "Immediately trigger an SOS distress signal",
+      "url": "./crisis_dashboard.html?shortcut=sos",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+
+  "prefer_related_applications": false,
+  "iarc_rating_id": ""
+}
