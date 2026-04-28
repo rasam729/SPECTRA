@@ -1,0 +1,24 @@
+/* Emergency Command Center Custom Styles */
+
+:root {
+  --tactical-dark: #0a0e1a;
+  --tactical-darker: #050810;
+  --tactical-light: #f1f5f9;
+}
+
+.tactical-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tactical-scrollbar::-webkit-scrollbar-track {
+  background: var(--tactical-darker);
+}
+
+.tactical-scrollbar::-webkit-scrollbar-thumb {
+  background: #00ffff;
+  border-radius: 4px;
+}
+
+.tactical-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #22d3ee;
+}
