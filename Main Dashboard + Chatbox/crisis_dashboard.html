@@ -1,0 +1,2471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <title>Crisis Response & Navigation AI — Responder Dashboard</title>
+  <meta name="description" content="Real-time emergency AI responder dashboard powered by VRCT + Gemini Flash. Monitors live distress signals, SOS alerts, and vibration guidance tokens." />
+
+  <!-- ═══ PWA Manifest & Mobile Meta ════════════════════════════ -->
+  <link rel="manifest" href="./manifest.json" />
+
+  <!-- Theme & Status Bar -->
+  <meta name="theme-color" content="#080c12" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#080c12" media="(prefers-color-scheme: light)" />
+
+  <!-- Android / Chrome PWA -->
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- Apple / iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CrisisResp" />
+
+  <!-- Apple Touch Icons (180px preferred by iOS for home-screen icon) -->
+  <link rel="apple-touch-icon" sizes="180x180" href="./icon-192.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png" />
+
+  <!-- Apple Splash / Startup Image (fallback for older iOS) -->
+  <meta name="apple-touch-startup-image" content="./icon-512.png" />
+
+  <!-- Favicon set -->
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
+
+  <!-- Disable automatic phone number / email detection on mobile -->
+  <meta name="format-detection" content="telephone=no, email=no, address=no" />
+  <!-- ════════════════════════════════════════════════════════════ -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <!-- Socket.IO client for ESP32 Sensor Bridge (port 5050) -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+  <style>
+    /* ─── Design Tokens ──────────────────────── */
+    :root {
+      --bg-base:       #080c12;
+      --bg-panel:      #0e1420;
+      --bg-card:       #131b2a;
+      --bg-card-hover: #192134;
+      --border:        rgba(255,255,255,0.07);
+      --border-bright: rgba(255,255,255,0.14);
+
+      --accent-fire:    #ff4e2a;
+      --accent-fire-glow: rgba(255,78,42,0.35);
+      --accent-hostage: #c084fc;
+      --accent-hostage-glow: rgba(192,132,252,0.3);
+      --accent-trapped: #f59e0b;
+      --accent-trapped-glow: rgba(245,158,11,0.3);
+      --accent-medical: #22d3ee;
+      --accent-medical-glow: rgba(34,211,238,0.3);
+      --accent-sos:    #ff1744;
+      --accent-sos-glow: rgba(255,23,68,0.5);
+      --accent-nav:    #4ade80;
+      --accent-vib:    #a78bfa;
+
+      --text-primary:  #f0f4ff;
+      --text-secondary:#8898aa;
+      --text-muted:    #49586e;
+
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --transition: 0.22s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── Scanline Overlay ───────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.04) 2px,
+        rgba(0,0,0,0.04) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ─── Grid Noise Background ──────────────── */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        radial-gradient(ellipse 60% 40% at 20% 10%, rgba(255,78,42,0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 50% at 80% 80%, rgba(34,211,238,0.06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── Header ─────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8,12,18,0.9);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 68px;
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent-fire), #ff8c42);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 18px var(--accent-fire-glow);
+      animation: logoPulse 3s ease-in-out infinite;
+    }
+    @keyframes logoPulse {
+      0%, 100% { box-shadow: 0 0 18px var(--accent-fire-glow); }
+      50%       { box-shadow: 0 0 32px var(--accent-fire-glow), 0 0 60px rgba(255,78,42,0.15); }
+    }
+    .logo-text { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+    .logo-sub   { font-size: 11px; color: var(--text-muted); font-weight: 400; margin-top: 1px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+
+    /* Connection status */
+    .conn-badge {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; font-weight: 500;
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border-bright);
+      background: var(--bg-panel);
+      transition: var(--transition);
+    }
+    .conn-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-muted);
+      transition: var(--transition);
+    }
+    .conn-badge.connected .conn-dot   { background: var(--accent-nav); box-shadow: 0 0 8px var(--accent-nav); animation: connPulse 1.5s ease-in-out infinite; }
+    .conn-badge.connecting .conn-dot  { background: var(--accent-trapped); animation: connPulse 0.7s ease-in-out infinite; }
+    .conn-badge.disconnected .conn-dot{ background: var(--accent-fire); }
+    @keyframes connPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* SOS Banner */
+    #sos-banner {
+      display: none;
+      position: fixed; top: 68px; left: 0; right: 0; z-index: 200;
+      background: var(--accent-sos);
+      color: #fff;
+      font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      text-align: center; padding: 10px;
+      animation: sosBlink 0.6s step-start infinite;
+    }
+    @keyframes sosBlink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    #sos-banner.active { display: block; }
+
+    /* ─── Main Layout ────────────────────────── */
+    .dashboard {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 280px 1fr 280px;
+      grid-template-rows: auto 1fr;
+      gap: 0;
+      height: calc(100vh - 68px);
+      overflow: hidden;
+    }
+
+    /* ─── Top Stats Bar ──────────────────────── */
+    .stats-bar {
+      grid-column: 1 / -1;
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-panel);
+      overflow-x: auto;
+    }
+    .stat-card {
+      flex-shrink: 0;
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      min-width: 140px;
+      transition: var(--transition);
+    }
+    .stat-card:hover { border-color: var(--border-bright); background: var(--bg-card-hover); }
+    .stat-icon { font-size: 20px; }
+    .stat-val  { font-size: 22px; font-weight: 900; line-height: 1; }
+    .stat-lbl  { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+
+    /* ─── Left Panel — Mode Status ───────────── */
+    .panel-left {
+      border-right: 1px solid var(--border);
+      background: var(--bg-panel);
+      display: flex; flex-direction: column; gap: 0;
+      overflow-y: auto;
+    }
+
+    .panel-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--text-muted);
+      padding: 18px 20px 10px;
+    }
+
+    /* Mode pills */
+    .mode-grid { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 16px; }
+    .mode-pill {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      font-size: 13px; font-weight: 500;
+      cursor: default; transition: var(--transition);
+    }
+    .mode-pill.active-fire     { border-color: var(--accent-fire);    background: rgba(255,78,42,0.12);    box-shadow: 0 0 20px rgba(255,78,42,0.2); }
+    .mode-pill.active-flood    { border-color: #38bdf8;                background: rgba(56,189,248,0.12);   box-shadow: 0 0 20px rgba(56,189,248,0.2); }
+    .mode-pill.active-quake    { border-color: var(--accent-trapped);  background: rgba(245,158,11,0.12);   box-shadow: 0 0 20px rgba(245,158,11,0.2); }
+    .mode-pill.active-hostage  { border-color: var(--accent-hostage);  background: rgba(192,132,252,0.12);  box-shadow: 0 0 20px rgba(192,132,252,0.2); animation: vibGlow 1s ease-in-out infinite; }
+    .mode-pill.active-trapped  { border-color: var(--accent-trapped);  background: rgba(245,158,11,0.12); }
+    .mode-pill.active-medical  { border-color: var(--accent-medical);  background: rgba(34,211,238,0.12);   box-shadow: 0 0 20px rgba(34,211,238,0.2); }
+    @keyframes vibGlow { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+    .mode-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+    .mode-pill.active-fire     .mode-dot { background: var(--accent-fire);   box-shadow: 0 0 8px var(--accent-fire); }
+    .mode-pill.active-flood    .mode-dot { background: #38bdf8;              box-shadow: 0 0 8px #38bdf8; }
+    .mode-pill.active-quake    .mode-dot { background: var(--accent-trapped);box-shadow: 0 0 8px var(--accent-trapped); }
+    .mode-pill.active-hostage  .mode-dot { background: var(--accent-hostage);box-shadow: 0 0 8px var(--accent-hostage); }
+    .mode-pill.active-trapped  .mode-dot { background: var(--accent-trapped);box-shadow: 0 0 8px var(--accent-trapped); }
+    .mode-pill.active-medical  .mode-dot { background: var(--accent-medical);box-shadow: 0 0 8px var(--accent-medical); }
+
+    /* Sensor panel */
+    .sensor-block { padding: 0 14px 16px; }
+    .sensor-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; margin-bottom: 6px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); font-size: 12px;
+    }
+    .sensor-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--accent-medical); }
+    .sensor-val.warn { color: var(--accent-trapped); }
+    .sensor-val.crit { color: var(--accent-fire); animation: critFlash 0.5s step-end infinite; }
+    @keyframes critFlash { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    /* ─── Center — Feed ──────────────────────── */
+    .panel-center {
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      background: var(--bg-base);
+    }
+
+    .feed-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .feed-title { font-size: 14px; font-weight: 600; }
+    .feed-live {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--accent-nav); font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-nav); animation: connPulse 1.2s ease-in-out infinite; }
+
+    /* Message feed */
+    #message-feed {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 10px;
+      scroll-behavior: smooth;
+    }
+    #message-feed::-webkit-scrollbar { width: 4px; }
+    #message-feed::-webkit-scrollbar-track { background: transparent; }
+    #message-feed::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+    .msg-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      animation: cardIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      transition: var(--transition);
+      cursor: default;
+      position: relative; overflow: hidden;
+    }
+    .msg-card::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+      border-radius: 3px 0 0 3px;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .msg-card:hover { background: var(--bg-card-hover); border-color: var(--border-bright); }
+
+    /* Card types */
+    .msg-card.type-fire    { border-color: rgba(255,78,42,0.4); }
+    .msg-card.type-fire::before    { background: var(--accent-fire); box-shadow: 0 0 10px var(--accent-fire); }
+    .msg-card.type-flood   { border-color: rgba(56,189,248,0.4); }
+    .msg-card.type-flood::before   { background: #38bdf8; }
+    .msg-card.type-quake   { border-color: rgba(245,158,11,0.4); }
+    .msg-card.type-quake::before   { background: var(--accent-trapped); }
+    .msg-card.type-hostage { border-color: rgba(192,132,252,0.4); }
+    .msg-card.type-hostage::before { background: var(--accent-hostage); }
+    .msg-card.type-trapped { border-color: rgba(245,158,11,0.3); }
+    .msg-card.type-trapped::before { background: var(--accent-trapped); }
+    .msg-card.type-medical { border-color: rgba(34,211,238,0.4); }
+    .msg-card.type-medical::before { background: var(--accent-medical); }
+    .msg-card.type-sos     { border-color: var(--accent-sos); animation: sosCard 0.4s ease-in-out infinite alternate; }
+    .msg-card.type-sos::before     { background: var(--accent-sos); box-shadow: 0 0 14px var(--accent-sos); }
+    @keyframes sosCard     { from{box-shadow:0 0 12px rgba(255,23,68,0.3)} to{box-shadow:0 0 30px rgba(255,23,68,0.6)} }
+
+    .msg-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .msg-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .badge {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+      padding: 3px 8px; border-radius: 20px; text-transform: uppercase;
+    }
+    .badge-fire     { background: rgba(255,78,42,0.2);   color: var(--accent-fire);    border: 1px solid rgba(255,78,42,0.4); }
+    .badge-flood    { background: rgba(56,189,248,0.2);  color: #38bdf8;              border: 1px solid rgba(56,189,248,0.4); }
+    .badge-quake    { background: rgba(245,158,11,0.2);  color: var(--accent-trapped); border: 1px solid rgba(245,158,11,0.4); }
+    .badge-hostage  { background: rgba(192,132,252,0.2); color: var(--accent-hostage); border: 1px solid rgba(192,132,252,0.4); }
+    .badge-trapped  { background: rgba(245,158,11,0.15); color: #fbbf24;              border: 1px solid rgba(245,158,11,0.3); }
+    .badge-medical  { background: rgba(34,211,238,0.2);  color: var(--accent-medical); border: 1px solid rgba(34,211,238,0.4); }
+    .badge-sos      { background: rgba(255,23,68,0.3);   color: #ff6b8a;             border: 1px solid rgba(255,23,68,0.6); animation: sosBadge 0.5s step-end infinite; }
+    .badge-nav      { background: rgba(74,222,128,0.15); color: var(--accent-nav);    border: 1px solid rgba(74,222,128,0.3); }
+    .badge-intent   { background: rgba(167,139,250,0.15);color: var(--accent-vib);    border: 1px solid rgba(167,139,250,0.3); }
+    @keyframes sosBadge    { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .msg-time { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+    .msg-source-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .msg-source-tag {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      color: var(--text-muted); text-transform: uppercase;
+      display: flex; align-items: center; gap: 5px;
+    }
+
+    .msg-body { font-size: 13px; line-height: 1.6; color: var(--text-primary); }
+
+    .msg-summary {
+      margin-top: 10px; padding: 8px 12px;
+      background: rgba(34,211,238,0.06); border: 1px solid rgba(34,211,238,0.15);
+      border-radius: var(--radius-sm);
+      font-size: 12px; color: var(--accent-medical);
+    }
+    .msg-summary-lbl { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 3px; text-transform: uppercase; }
+
+    /* Vibration tokens */
+    .vib-tokens { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .vib-token {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 600;
+      padding: 4px 10px; border-radius: 6px;
+      background: rgba(167,139,250,0.15); color: var(--accent-vib);
+      border: 1px solid rgba(167,139,250,0.3);
+      animation: vibPulse 0.8s ease-in-out infinite alternate;
+    }
+    @keyframes vibPulse { from{transform:scale(1)} to{transform:scale(1.04)} }
+
+    /* Input bar */
+    .input-bar {
+      border-top: 1px solid var(--border);
+      padding: 14px 16px;
+      flex-shrink: 0;
+      background: var(--bg-panel);
+    }
+    .input-wrapper { display: flex; gap: 8px; }
+    #demo-input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 10px 14px;
+      color: var(--text-primary); font-size: 13px; font-family: 'Inter', sans-serif;
+      outline: none; transition: var(--transition);
+    }
+    #demo-input:focus { border-color: var(--accent-medical); box-shadow: 0 0 0 3px rgba(34,211,238,0.1); }
+    #demo-input::placeholder { color: var(--text-muted); }
+
+    .btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 18px; border-radius: var(--radius-sm);
+      font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif;
+      cursor: pointer; border: 1px solid transparent; transition: var(--transition);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-fire), #ff7043);
+      color: #fff; border-color: rgba(255,78,42,0.5);
+      box-shadow: 0 0 16px rgba(255,78,42,0.25);
+    }
+    .btn-primary:hover { box-shadow: 0 0 24px rgba(255,78,42,0.45); transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-ghost {
+      background: var(--bg-card); color: var(--text-secondary);
+      border-color: var(--border);
+    }
+    .btn-ghost:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--border-bright); }
+
+    /* Scenario quick-fire buttons */
+    .scenario-row {
+      display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;
+    }
+    .scenario-btn {
+      font-size: 11px; font-weight: 600; padding: 5px 12px;
+      border-radius: 20px; cursor: pointer; border: 1px solid;
+      transition: var(--transition); font-family: 'Inter', sans-serif;
+    }
+    .scn-fire    { background: rgba(255,78,42,0.1);   color: var(--accent-fire);    border-color: rgba(255,78,42,0.3);    }
+    .scn-hostage { background: rgba(192,132,252,0.1); color: var(--accent-hostage); border-color: rgba(192,132,252,0.3); }
+    .scn-trapped { background: rgba(245,158,11,0.1);  color: var(--accent-trapped); border-color: rgba(245,158,11,0.3);  }
+    .scn-medical { background: rgba(34,211,238,0.1);  color: var(--accent-medical); border-color: rgba(34,211,238,0.3);  }
+    .scn-sos     { background: rgba(255,23,68,0.15);  color: #ff6b8a;              border-color: rgba(255,23,68,0.4);   }
+    .scn-flood   { background: rgba(56,189,248,0.1);  color: #38bdf8;              border-color: rgba(56,189,248,0.3); }
+    .scenario-btn:hover { opacity: 0.75; transform: scale(0.97); }
+
+    /* ─── Right Panel — Log & Vib ─────────────── */
+    .panel-right {
+      border-left: 1px solid var(--border);
+      background: var(--bg-panel);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* Vibration visualizer */
+    .vib-viz {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .vib-title { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; }
+    .vib-canvas-wrap {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 10px;
+      display: flex; align-items: flex-end; gap: 3px;
+      height: 64px; overflow: hidden;
+    }
+    .vib-bar {
+      flex: 1; border-radius: 3px 3px 0 0;
+      background: var(--accent-vib); opacity: 0.3;
+      transition: height 0.2s ease, opacity 0.2s ease;
+      min-height: 4px;
+    }
+    .vib-bar.active { opacity: 1; }
+
+    /* Side log */
+    .side-log { flex: 1; overflow-y: auto; }
+    .side-log::-webkit-scrollbar { width: 3px; }
+    .side-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .log-entry {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      animation: cardIn 0.25s ease;
+    }
+    .log-ts    { color: var(--text-muted); font-family: 'JetBrains Mono', monospace; flex-shrink: 0; padding-top: 1px; }
+    .log-icon  { font-size: 13px; flex-shrink: 0; }
+    .log-msg   { color: var(--text-secondary); line-height: 1.5; }
+    .log-msg strong { color: var(--text-primary); }
+
+    /* ─── Empty state ────────────────────────── */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; height: 100%; opacity: 0.4; text-align: center; padding: 40px;
+    }
+    .empty-icon { font-size: 48px; }
+    .empty-title { font-size: 15px; font-weight: 600; }
+    .empty-sub   { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ─── WebSocket status dialog ────────────── */
+    .ws-config {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .ws-row { display: flex; gap: 6px; align-items: center; }
+    .ws-input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 7px 10px;
+      color: var(--text-primary); font-size: 12px; font-family: 'JetBrains Mono', monospace;
+      outline: none; transition: var(--transition);
+    }
+    .ws-input:focus { border-color: var(--accent-medical); }
+    .btn-sm { padding: 6px 12px; font-size: 11px; }
+
+    /* ═══════════════════════════════════════════════════
+       MOBILE-FIRST RESPONSIVE SYSTEM
+       Base = mobile  →  640px = tablet  →  900px = desktop
+    ═══════════════════════════════════════════════════ */
+
+    /* ── Base (all screens) ── */
+
+    /* Safe-area padding for iPhone notch / home bar */
+    body {
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-left:   env(safe-area-inset-left,   0px);
+      padding-right:  env(safe-area-inset-right,  0px);
+    }
+
+    /* Touch-friendly minimum: all interactive elements ≥ 48×48px */
+    .btn, .scenario-btn, .ws-input, #demo-input,
+    .chat-tab, #chat-send-btn, #chat-fab {
+      min-height: 48px;
+    }
+    .scenario-btn {
+      min-height: 48px;
+      padding: 10px 16px;
+      font-size: 13px;
+      border-radius: 24px;
+    }
+    .btn { padding: 12px 20px; font-size: 14px; }
+    .btn-sm { min-height: 40px; padding: 8px 14px; font-size: 12px; }
+
+    /* ── Mobile layout (< 640px): single-column stack ── */
+    @media (max-width: 639px) {
+      /* Header compact */
+      header {
+        padding: 0 14px;
+        height: 56px;
+      }
+      .logo-text  { font-size: 13px; }
+      .logo-sub   { display: none; }       /* hide subtitle on tiny screens */
+      .logo-icon  { width: 30px; height: 30px; font-size: 15px; }
+
+      /* SOS banner below compact header */
+      #sos-banner { top: 56px; font-size: 12px; padding: 8px; }
+
+      /* Stats bar: horizontal scroll */
+      .stats-bar  { padding: 10px 12px; gap: 8px; }
+      .stat-card  { min-width: 110px; padding: 8px 12px; }
+      .stat-val   { font-size: 18px; }
+
+      /* Dashboard: full single column, no side panels */
+      .dashboard {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        height: auto;
+        min-height: calc(100vh - 56px);
+        overflow: visible;
+      }
+      .panel-left, .panel-right { display: none; }
+
+      /* Center feed: full height */
+      .panel-center {
+        min-height: calc(100vh - 56px - 60px - 130px);
+      }
+      #message-feed { padding: 10px; gap: 8px; }
+
+      /* Input bar: stacked on mobile */
+      .input-bar { padding: 10px 12px; }
+      .input-wrapper { flex-direction: column; gap: 8px; }
+      #demo-input { width: 100%; font-size: 15px; padding: 12px 14px; }
+      .input-wrapper .btn { width: 100%; justify-content: center; }
+      .input-wrapper .btn-ghost { display: none; } /* hide Clear on mobile */
+
+      /* Scenario buttons: wrap & big */
+      .scenario-row  { gap: 8px; margin-top: 8px; }
+      .scenario-btn  { flex: 1 1 calc(33% - 8px); text-align: center; }
+
+      /* Message cards */
+      .msg-card  { padding: 12px 13px; border-radius: 12px; }
+      .msg-body  { font-size: 13px; }
+
+      /* Chat drawer: full-width on mobile */
+      #chat-drawer  { width: 100%; border-left: none; }
+      #chat-fab     { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); right: 16px; padding: 12px 18px; font-size: 13px; }
+
+      /* Conn badge: icon only */
+      #conn-label { display: none; }
+      .conn-badge { padding: 5px 8px; }
+    }
+
+    /* ── Tablet (640px – 899px): show left panel, hide right ── */
+    @media (min-width: 640px) and (max-width: 899px) {
+      .dashboard {
+        grid-template-columns: 220px 1fr;
+        grid-template-rows: auto 1fr;
+        height: calc(100vh - 68px);
+        overflow: hidden;
+      }
+      .panel-left  { display: flex; }
+      .panel-right { display: none; }
+      .panel-left  { grid-row: 2; }
+      .stats-bar   { grid-column: 1 / -1; }
+
+      /* Scenario buttons: comfortable */
+      .scenario-btn { min-height: 44px; padding: 10px 14px; font-size: 12px; }
+
+      /* Chat drawer: half-width */
+      #chat-drawer { width: 380px; }
+    }
+
+    /* ── Desktop (≥ 900px): three-column layout ── */
+    @media (min-width: 900px) {
+      .dashboard {
+        grid-template-columns: 280px 1fr 280px;
+        grid-template-rows: auto 1fr;
+        height: calc(100vh - 68px);
+        overflow: hidden;
+      }
+      .panel-left, .panel-right { display: flex; }
+      /* Restore normal button sizes for desktop */
+      .btn            { min-height: 40px; padding: 10px 18px; font-size: 13px; }
+      .scenario-btn   { min-height: 34px; padding: 5px 12px;  font-size: 11px; }
+      .input-wrapper  { flex-direction: row; }
+      #demo-input     { width: auto; }
+      .input-wrapper .btn-ghost { display: flex; }
+    }
+
+
+    /* ══════════════════════════════════════════
+       VICTIM MULTILINGUAL CHATBOT
+    ══════════════════════════════════════════ */
+
+    /* FAB */
+    #chat-fab {
+      position: fixed; bottom: 28px; right: 28px; z-index: 500;
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 22px; border-radius: 40px;
+      background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+      color: #fff; font-size: 14px; font-weight: 700;
+      border: none; cursor: pointer;
+      box-shadow: 0 0 28px rgba(34,211,238,0.45), 0 4px 24px rgba(0,0,0,0.4);
+      transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+      font-family: 'Inter', sans-serif;
+    }
+    #chat-fab:hover { transform: scale(1.06); box-shadow: 0 0 40px rgba(34,211,238,0.6), 0 6px 30px rgba(0,0,0,0.4); }
+    #chat-unread {
+      background: var(--accent-sos); color: #fff;
+      font-size: 11px; font-weight: 900;
+      min-width: 20px; height: 20px; border-radius: 10px;
+      display: none; align-items: center; justify-content: center;
+      padding: 0 5px;
+    }
+    #chat-unread.show { display: flex; animation: sosCard 0.4s ease-in-out infinite alternate; }
+
+    /* Drawer */
+    #chat-drawer {
+      position: fixed; bottom: 0; right: 0; z-index: 400;
+      width: 420px; height: 100vh;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border-bright);
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+      box-shadow: -12px 0 60px rgba(0,0,0,0.5);
+    }
+    #chat-drawer.open { transform: translateX(0); }
+
+    .chat-drawer-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card); flex-shrink: 0;
+    }
+    .chat-drawer-title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .chat-close-btn {
+      width: 30px; height: 30px; border-radius: 8px;
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      color: var(--text-muted); font-size: 16px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: var(--transition);
+    }
+    .chat-close-btn:hover { background: rgba(255,255,255,0.12); color: var(--text-primary); }
+
+    /* Tab strip */
+    .chat-tab-strip {
+      display: flex; border-bottom: 1px solid var(--border);
+      background: var(--bg-card); flex-shrink: 0;
+    }
+    .chat-tab {
+      flex: 1; padding: 10px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: none; background: transparent;
+      color: var(--text-muted); font-family: 'Inter', sans-serif;
+      border-bottom: 2px solid transparent; transition: var(--transition);
+    }
+    .chat-tab.active { color: var(--accent-medical); border-bottom-color: var(--accent-medical); }
+    .chat-tab:hover:not(.active) { color: var(--text-secondary); }
+
+    /* Lang detection bar */
+    #lang-detect-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px; flex-shrink: 0;
+      background: rgba(34,211,238,0.05);
+      border-bottom: 1px solid rgba(34,211,238,0.12);
+      font-size: 11px; min-height: 36px;
+    }
+    .lang-flag { font-size: 18px; }
+    .lang-name { color: var(--accent-medical); font-weight: 600; }
+    .lang-code { color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+    .translate-badge {
+      margin-left: auto;
+      font-size: 10px; font-weight: 600; padding: 3px 8px;
+      border-radius: 20px;
+      background: rgba(34,211,238,0.15); color: var(--accent-medical);
+      border: 1px solid rgba(34,211,238,0.3);
+    }
+
+    /* Messages area */
+    #chat-messages {
+      flex: 1; overflow-y: auto; padding: 14px 14px;
+      display: flex; flex-direction: column; gap: 10px;
+      scroll-behavior: smooth;
+    }
+    #chat-messages::-webkit-scrollbar { width: 4px; }
+    #chat-messages::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+    /* Victim bubble */
+    .bubble-victim {
+      align-self: flex-end; max-width: 88%;
+      animation: cardIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .bubble-victim .bub-body {
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      color: #fff; padding: 10px 14px; border-radius: 16px 16px 4px 16px;
+      font-size: 13px; line-height: 1.55;
+    }
+    .bubble-victim .bub-en {
+      font-size: 11px; color: var(--text-muted);
+      margin-top: 5px; padding: 6px 10px;
+      background: rgba(255,255,255,0.04); border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.07);
+      font-style: italic;
+    }
+    .bubble-victim .bub-en-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+      color: var(--accent-medical); margin-bottom: 3px; text-transform: uppercase;
+    }
+    .bub-meta {
+      font-size: 10px; color: var(--text-muted);
+      display: flex; align-items: center; gap: 5px; margin-top: 4px;
+    }
+    .bub-lang-pill {
+      font-size: 9px; font-weight: 600; padding: 2px 6px;
+      border-radius: 10px; background: rgba(34,211,238,0.12);
+      color: var(--accent-medical); border: 1px solid rgba(34,211,238,0.25);
+    }
+
+    /* AI bubble */
+    .bubble-ai {
+      align-self: flex-start; max-width: 88%;
+      animation: cardIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .bubble-ai .bub-body {
+      background: var(--bg-card);
+      border: 1px solid var(--border-bright);
+      color: var(--text-primary); padding: 10px 14px;
+      border-radius: 16px 16px 16px 4px;
+      font-size: 13px; line-height: 1.55;
+    }
+    .bubble-ai .bub-en {
+      font-size: 11px; color: var(--text-muted);
+      margin-top: 5px; padding: 6px 10px;
+      background: rgba(74,222,128,0.04); border-radius: 6px;
+      border: 1px solid rgba(74,222,128,0.12);
+    }
+    .bubble-ai .bub-en-label { font-size:9px; font-weight:700; letter-spacing:0.08em; color: var(--accent-nav); margin-bottom:3px; text-transform:uppercase; }
+    .ai-icon { font-size: 18px; display: inline-block; margin-right: 4px; }
+    .bub-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }
+    .bub-tag {
+      font-size: 9px; font-weight: 700; padding: 2px 7px;
+      border-radius: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+      background: rgba(245,158,11,0.15); color: var(--accent-trapped);
+      border: 1px solid rgba(245,158,11,0.3);
+    }
+    .bub-tag.medical { background:rgba(34,211,238,0.12); color:var(--accent-medical); border-color:rgba(34,211,238,0.3); }
+    .bub-tag.fire    { background:rgba(255,78,42,0.12);  color:var(--accent-fire);    border-color:rgba(255,78,42,0.3); }
+    .bub-tag.nav     { background:rgba(74,222,128,0.12); color:var(--accent-nav);     border-color:rgba(74,222,128,0.3); }
+    .bub-tag.sos     { background:rgba(255,23,68,0.2);   color:#ff6b8a;              border-color:rgba(255,23,68,0.4); }
+
+    /* Typing indicator */
+    .typing-indicator {
+      align-self: flex-start;
+      display: flex; align-items: center; gap: 5px;
+      padding: 10px 14px; background: var(--bg-card);
+      border: 1px solid var(--border-bright); border-radius: 16px;
+      font-size: 12px; color: var(--text-muted);
+    }
+    .typing-dots { display:flex; gap:3px; }
+    .typing-dots span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent-medical);
+      animation: typingBounce 1.2s ease-in-out infinite;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typingBounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+    /* Chat input area */
+    .chat-input-area {
+      border-top: 1px solid var(--border);
+      padding: 12px 14px; flex-shrink: 0;
+      background: var(--bg-card);
+    }
+    .chat-input-row { display: flex; gap: 8px; align-items: flex-end; }
+    #chat-input {
+      flex: 1; background: var(--bg-base); border: 1px solid var(--border-bright);
+      border-radius: 12px; padding: 10px 14px;
+      color: var(--text-primary); font-size: 13px; font-family: 'Inter', sans-serif;
+      outline: none; resize: none; max-height: 100px; min-height: 42px;
+      transition: var(--transition); line-height: 1.5;
+    }
+    #chat-input:focus { border-color: var(--accent-medical); box-shadow: 0 0 0 3px rgba(34,211,238,0.1); }
+    #chat-input::placeholder { color: var(--text-muted); }
+    #chat-send-btn {
+      /* ≥ 48×48 px — WCAG 2.5.5 & touch-target spec compliance */
+      width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+      background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+      border: none; color: #fff; font-size: 20px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: var(--transition); box-shadow: 0 0 14px rgba(34,211,238,0.35);
+    }
+    #chat-send-btn:hover { transform: scale(1.08); box-shadow: 0 0 22px rgba(34,211,238,0.55); }
+    #chat-send-btn:active { transform: scale(0.96); }
+    #chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .chat-hint {
+      font-size: 10px; color: var(--text-muted); margin-top: 7px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .chat-hint-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-medical); }
+
+    /* Responder copy card in main feed */
+    .msg-card.type-victim {
+      border-color: rgba(34,211,238,0.35);
+    }
+    .msg-card.type-victim::before { background: var(--accent-medical); }
+
+    /* Chat empty state */
+    .chat-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; flex: 1; text-align: center; opacity: 0.45; padding: 30px;
+    }
+    .chat-empty-icon { font-size: 40px; }
+    .chat-empty-title { font-size: 14px; font-weight: 600; }
+    .chat-empty-sub { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ─── Speech-to-Text (STT) ───────────────────── */
+    #chat-mic-btn {
+      width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border-bright);
+      color: var(--text-secondary); font-size: 20px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: var(--transition);
+    }
+    #chat-mic-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: rgba(255,78,42,0.4); }
+    #chat-mic-btn.recording {
+      background: rgba(255,23,68,0.15); border-color: var(--accent-sos);
+      color: var(--accent-sos); animation: micPulse 1s ease-in-out infinite;
+      box-shadow: 0 0 20px rgba(255,23,68,0.3);
+    }
+    @keyframes micPulse {
+      0%,100% { box-shadow: 0 0 10px rgba(255,23,68,0.3); }
+      50%      { box-shadow: 0 0 28px rgba(255,23,68,0.6); }
+    }
+    #stt-status-bar {
+      background: rgba(255,23,68,0.06); border: 1px solid rgba(255,23,68,0.2);
+      border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; color: var(--text-secondary);
+    }
+    #stt-status-bar.stt-warn { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.25); color: var(--accent-trapped); }
+    .stt-waveform { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+    .stt-wave-bar {
+      width: 3px; border-radius: 2px; background: var(--accent-sos);
+      animation: sttWave 0.8s ease-in-out infinite; min-height: 4px;
+    }
+    .stt-wave-bar:nth-child(1){animation-delay:0s;    height:8px}
+    .stt-wave-bar:nth-child(2){animation-delay:0.15s; height:14px}
+    .stt-wave-bar:nth-child(3){animation-delay:0.3s;  height:10px}
+    .stt-wave-bar:nth-child(4){animation-delay:0.45s; height:16px}
+    .stt-wave-bar:nth-child(5){animation-delay:0.6s;  height:8px}
+    @keyframes sttWave { 0%,100%{transform:scaleY(0.4);opacity:0.7} 50%{transform:scaleY(1);opacity:1} }
+    #stt-interim { flex:1; font-style:italic; color:var(--text-muted); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .stt-lang-badge {
+      font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px;
+      background:rgba(255,23,68,0.15); color:#ff6b8a;
+      border:1px solid rgba(255,23,68,0.3); flex-shrink:0; text-transform:uppercase;
+    }
+
+    /* ─── Stealth Mode ────────────────────────── */
+    body.stealth-mode { filter: grayscale(70%) brightness(0.55); transition: filter 0.8s ease; }
+    body.stealth-mode .msg-body { color: transparent !important; user-select: none; }
+    body.stealth-mode .msg-body::after {
+      content: '[CLASSIFIED — STEALTH MODE ACTIVE]';
+      color: var(--accent-hostage); font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; opacity: 0.75; pointer-events: none;
+    }
+    body.stealth-mode #sos-banner { display: none !important; }
+    body.stealth-mode .msg-summary { display: none; }
+    .stealth-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 16px; min-height: 34px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      color: var(--text-muted); font-size: 11px; font-weight: 600;
+      cursor: pointer; transition: var(--transition); font-family: 'Inter', sans-serif;
+    }
+    .stealth-btn.active {
+      background: rgba(192,132,252,0.15); border-color: var(--accent-hostage);
+      color: var(--accent-hostage); box-shadow: 0 0 16px rgba(192,132,252,0.3);
+      animation: vibGlow 1s ease-in-out infinite;
+    }
+    .bridge-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 500; padding: 4px 10px;
+      border-radius: 16px; border: 1px solid var(--border);
+      background: var(--bg-panel); color: var(--text-muted);
+    }
+    .bridge-badge.connected { border-color: rgba(74,222,128,0.4); color: var(--accent-nav); }
+    .bridge-badge.connected .bridge-dot { background: var(--accent-nav) !important; box-shadow: 0 0 8px var(--accent-nav); animation: connPulse 1.5s ease-in-out infinite; }
+    .sensor-val.live-update { animation: liveFlash 0.5s ease; }
+    @keyframes liveFlash { 0%{background:rgba(34,211,238,0.25);border-radius:4px} 100%{background:transparent} }
+  </style>
+</head>
+<body>
+
+<!-- SOS Banner -->
+<div id="sos-banner">⚠ SOS ALERT ACTIVATED — EMERGENCY RESPONSE REQUIRED ⚠</div>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🚨</div>
+    <div>
+      <div class="logo-text">Crisis Response &amp; Navigation AI</div>
+      <div class="logo-sub">Responder Dashboard · Powered by Gemini Flash + VRCT</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button id="chat-fab-header" onclick="toggleChat()" style="display:flex;align-items:center;gap:8px;padding:8px 16px;border-radius:20px;background:linear-gradient(135deg,#22d3ee,#0ea5e9);color:#fff;font-size:12px;font-weight:700;border:none;cursor:pointer;font-family:'Inter',sans-serif;box-shadow:0 0 16px rgba(34,211,238,0.35);transition:all 0.2s;">
+      💬 Victim Chat
+      <span id="chat-unread" style="background:#ff1744;color:#fff;font-size:10px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:none;align-items:center;justify-content:center;padding:0 4px;">0</span>
+    </button>
+    <div class="conn-badge disconnected" id="conn-badge">
+      <div class="conn-dot"></div>
+      <span id="conn-label">Disconnected</span>
+    </div>
+    <button id="stealth-btn" class="stealth-btn" onclick="toggleStealthMode()" title="Stealth Mode — vibration-only, text classified">
+      🤫 <span id="stealth-label">Stealth</span>
+    </button>
+    <div class="bridge-badge" id="bridge-badge">
+      <div class="bridge-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-muted);transition:var(--transition);flex-shrink:0;"></div>
+      <span id="bridge-label">ESP32 —</span>
+    </div>
+  </div>
+</header>
+
+<!-- Dashboard -->
+<div class="dashboard">
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-icon">📡</div>
+      <div>
+        <div class="stat-val" id="stat-total">0</div>
+        <div class="stat-lbl">Signals</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🔥</div>
+      <div>
+        <div class="stat-val" id="stat-fire" style="color:var(--accent-fire)">0</div>
+        <div class="stat-lbl">Fire/Flood/EQ</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🏥</div>
+      <div>
+        <div class="stat-val" id="stat-medical" style="color:var(--accent-medical)">0</div>
+        <div class="stat-lbl">Medical</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🤫</div>
+      <div>
+        <div class="stat-val" id="stat-hostage" style="color:var(--accent-hostage)">0</div>
+        <div class="stat-lbl">Hostage/Stealth</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🆘</div>
+      <div>
+        <div class="stat-val" id="stat-sos" style="color:var(--accent-sos)">0</div>
+        <div class="stat-lbl">SOS Events</div>
+      </div>
+    </div>
+    <div class="stat-card" style="margin-left:auto">
+      <div class="stat-icon">⏱</div>
+      <div>
+        <div class="stat-val" id="stat-time" style="font-size:14px;color:var(--text-secondary);font-weight:600">—</div>
+        <div class="stat-lbl">Last Signal</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Left Panel -->
+  <div class="panel-left">
+    <div class="panel-title">Active Modes</div>
+    <div class="mode-grid" id="mode-grid">
+      <div class="mode-pill" id="mode-fire">    <div class="mode-dot"></div>🔥 Fire / Flame</div>
+      <div class="mode-pill" id="mode-flood">   <div class="mode-dot"></div>🌊 Flood / Water</div>
+      <div class="mode-pill" id="mode-quake">   <div class="mode-dot"></div>🌍 Earthquake</div>
+      <div class="mode-pill" id="mode-hostage"> <div class="mode-dot"></div>🤫 Hostage / Stealth</div>
+      <div class="mode-pill" id="mode-trapped"> <div class="mode-dot"></div>⚙️ Trapped / Injured</div>
+      <div class="mode-pill" id="mode-medical"> <div class="mode-dot"></div>🏥 Medical Assistance</div>
+    </div>
+
+    <div class="panel-title">Thermal Sensors</div>
+    <div class="sensor-block">
+      <div class="sensor-row">
+        <span>Zone A — Temp</span>
+        <span class="sensor-val" id="sensor-a">--°C</span>
+      </div>
+      <div class="sensor-row">
+        <span>Zone B — Temp</span>
+        <span class="sensor-val" id="sensor-b">--°C</span>
+      </div>
+      <div class="sensor-row">
+        <span>Zone C — Temp</span>
+        <span class="sensor-val" id="sensor-c">--°C</span>
+      </div>
+      <div class="sensor-row">
+        <span>Smoke Density</span>
+        <span class="sensor-val" id="sensor-smoke">--ppm</span>
+      </div>
+      <div class="sensor-row">
+        <span>Heartbeat</span>
+        <span class="sensor-val" id="sensor-hr">-- bpm</span>
+      </div>
+    </div>
+
+    <div class="panel-title">Navigation Exit</div>
+    <div class="sensor-block">
+      <div class="sensor-row">
+        <span>Exit A</span><span class="sensor-val" id="exit-a" style="color:var(--accent-nav)">CLEAR</span>
+      </div>
+      <div class="sensor-row">
+        <span>Exit B</span><span class="sensor-val" id="exit-b" style="color:var(--accent-nav)">CLEAR</span>
+      </div>
+      <div class="sensor-row">
+        <span>Exit C</span><span class="sensor-val warn" id="exit-c">UNKNOWN</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center Feed -->
+  <div class="panel-center">
+    <div class="feed-header">
+      <div class="feed-title">Live Signal Feed</div>
+      <div class="feed-live"><div class="live-dot"></div>LIVE · AI Processing</div>
+    </div>
+
+    <div id="message-feed">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">📡</div>
+        <div class="empty-title">Awaiting Distress Signals</div>
+        <div class="empty-sub">Connect to VRCT WebSocket or use the scenario buttons below to simulate a crisis event.</div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-bar">
+      <div class="input-wrapper">
+        <input id="demo-input" type="text" placeholder="Simulate a crisis signal… e.g. 'Help! Fire on floor 3'" />
+        <button class="btn btn-primary" onclick="sendDemoMessage()">⚡ Send Signal</button>
+        <button class="btn btn-ghost" onclick="clearFeed()">Clear</button>
+      </div>
+      <div class="scenario-row">
+        <button class="scenario-btn scn-fire"    onclick="fireScenario('fire')">🔥 Fire Alert</button>
+        <button class="scenario-btn scn-flood"   onclick="fireScenario('flood')">🌊 Flood</button>
+        <button class="scenario-btn scn-hostage" onclick="fireScenario('hostage')">🤫 Hostage</button>
+        <button class="scenario-btn scn-trapped" onclick="fireScenario('trapped')">⚙️ Trapped</button>
+        <button class="scenario-btn scn-medical" onclick="fireScenario('medical')">🏥 Medical</button>
+        <button class="scenario-btn scn-sos"     onclick="fireScenario('sos')">🆘 SOS Activate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="panel-right">
+    <!-- WebSocket config -->
+    <div class="ws-config">
+      <div class="panel-title" style="padding:0 0 8px">VRCT WebSocket</div>
+      <div class="ws-row">
+        <input class="ws-input" id="ws-url" type="text" value="ws://127.0.0.1:2231" placeholder="ws://127.0.0.1:2231" />
+        <button class="btn btn-ghost btn-sm" onclick="connectWS()">Connect</button>
+      </div>
+    </div>
+
+    <!-- Vibration Visualizer -->
+    <div class="vib-viz">
+      <div class="vib-title">Vibration Token Visualizer</div>
+      <div class="vib-canvas-wrap" id="vib-bars">
+        <!-- bars injected by JS -->
+      </div>
+    </div>
+
+    <!-- Side Log -->
+    <div class="panel-title" style="padding:14px 14px 6px">Event Log</div>
+    <div class="side-log" id="side-log"></div>
+  </div>
+
+</div><!-- end dashboard -->
+
+<!-- ══════════════════════════════════════════
+     VICTIM MULTILINGUAL CHATBOT DRAWER
+══════════════════════════════════════════ -->
+<div id="chat-drawer">
+
+  <!-- Header -->
+  <div class="chat-drawer-header">
+    <div class="chat-drawer-title">
+      💬 Victim Chat
+      <span style="font-size:10px;font-weight:500;color:var(--text-muted);">&nbsp;· Any Language Supported</span>
+    </div>
+    <button class="chat-close-btn" onclick="toggleChat()">✕</button>
+  </div>
+
+  <!-- Tabs: Victim View / Responder View -->
+  <div class="chat-tab-strip">
+    <button class="chat-tab active" id="tab-victim"   onclick="switchChatTab('victim')">🧍 Victim View</button>
+    <button class="chat-tab"        id="tab-responder" onclick="switchChatTab('responder')">📡 Responder View (EN)</button>
+  </div>
+
+  <!-- Language detection bar -->
+  <div id="lang-detect-bar">
+    <span class="lang-flag" id="lang-flag">🌐</span>
+    <span class="lang-name" id="lang-name">Awaiting input…</span>
+    <span class="lang-code" id="lang-code"></span>
+    <span class="translate-badge" id="translate-badge" style="display:none">🔄 Translated via Google</span>
+  </div>
+
+  <!-- Messages -->
+  <div id="chat-messages">
+    <div class="chat-empty" id="chat-empty">
+      <div class="chat-empty-icon">🌍</div>
+      <div class="chat-empty-title">Type in Any Language</div>
+      <div class="chat-empty-sub">Hindi, Arabic, Spanish, French, Japanese, Bengali… the AI will understand and respond in your language while showing English to responders.</div>
+    </div>
+  </div>
+
+  <!-- Responder transcript (hidden by default) -->
+  <div id="responder-transcript" style="display:none;flex:1;overflow-y:auto;padding:14px;flex-direction:column;gap:10px;">
+    <div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px;">All messages shown in English for responder use</div>
+  </div>
+
+  <!-- Input -->
+  <div class="chat-input-area">
+    <!-- STT live status bar -->
+    <div id="stt-status-bar" style="display:none">
+      <div class="stt-waveform">
+        <div class="stt-wave-bar"></div>
+        <div class="stt-wave-bar"></div>
+        <div class="stt-wave-bar"></div>
+        <div class="stt-wave-bar"></div>
+        <div class="stt-wave-bar"></div>
+      </div>
+      <span id="stt-interim">Listening…</span>
+      <span class="stt-lang-badge" id="stt-lang-badge">STT</span>
+    </div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" rows="1" placeholder="Type in any language… أكتب هنا · यहाँ लिखें · 在这里输入"></textarea>
+      <button id="chat-mic-btn" onclick="toggleSTT()" title="Speak in any language (WaveNet / Web Speech)">🎤</button>
+      <button id="chat-send-btn" onclick="sendVictimMessage()">➤</button>
+    </div>
+    <div class="chat-hint">
+      <div class="chat-hint-dot"></div>
+      Tap 🎤 to speak · Any language auto-detected · Translated to English for responders
+    </div>
+  </div>
+
+</div><!-- end chat-drawer -->
+
+<script>
+/* ─── State ──────────────────────────────────── */
+const state = {
+  ws: null,
+  counts: { total:0, fire:0, medical:0, hostage:0, sos:0 },
+  sosActive: false,
+  vibTimeout: null,
+  stealthMode: false,       // Stealth Mode: vib-only, text classified
+  notifPermission: 'default', // Notification API permission cache
+};
+
+/* ══════════════════════════════════════════════
+   HAPTIC FEEDBACK ENGINE  (Web Vibration API)
+   ─────────────────────────────────────────────
+   Spec: https://w3.org/TR/vibration/
+   Mobile browsers require a prior user gesture before
+   navigator.vibrate() is permitted. We gate every call
+   on `haptic.userHasInteracted`, which is set to true
+   inside the very first user-triggered action (the
+   "Start Emergency Guide" / scenario / chat-send buttons).
+══════════════════════════════════════════════ */
+const haptic = {
+
+  /* ── Gate: flipped to true on first intentional gesture ── */
+  userHasInteracted: false,
+
+  /* ── API availability check ── */
+  supported: typeof navigator !== 'undefined' && 'vibrate' in navigator,
+
+  /* ────────────────────────────────────────────
+     PRE-DEFINED EMERGENCY VIBRATION PATTERNS
+     Each integer = milliseconds: odd positions vibrate,
+     even positions are silent pauses.
+     [vibrate, pause, vibrate, pause, …]
+  ──────────────────────────────────────────── */
+
+  /** General SOS distress alert — long-short-long repeating */
+  pattern_SOS:   [1000, 500, 1000, 500],
+
+  /** Navigation: turn LEFT — two short pulses */
+  pattern_LEFT:  [200, 100, 200],
+
+  /** Navigation: turn RIGHT — two long pulses */
+  pattern_RIGHT: [600, 200, 600],
+
+  /** Stealth / stay-quiet — single gentle tap */
+  pattern_QUIET: [80],
+
+  /** All-clear / confirmation — three quick ticks */
+  pattern_OK:    [100, 80, 100, 80, 100],
+};
+
+/**
+ * triggerEmergencyVibration(pattern)
+ * ─────────────────────────────────
+ * Fires the device vibration motor with the supplied
+ * integer-array pattern. Silently no-ops when:
+ *   • the Web Vibration API is absent (desktop browsers), OR
+ *   • the user has not yet interacted with the page
+ *     (browser security policy — requires a prior gesture).
+ *
+ * @param {number[]} pattern  e.g. [400, 200, 400]
+ */
+function triggerEmergencyVibration(pattern) {
+  // Guard 1: API must be present
+  if (!haptic.supported) {
+    console.debug('[HAPTIC] navigator.vibrate not available on this device.');
+    return;
+  }
+  // Guard 2: mandatory user-gesture requirement (mobile security)
+  if (!haptic.userHasInteracted) {
+    console.warn('[HAPTIC] Vibration blocked — no user interaction recorded yet.');
+    return;
+  }
+  // Guard 3: validate pattern is a non-empty array of numbers
+  if (!Array.isArray(pattern) || pattern.length === 0) {
+    console.warn('[HAPTIC] Invalid vibration pattern:', pattern);
+    return;
+  }
+
+  try {
+    const accepted = navigator.vibrate(pattern);
+    console.log('[HAPTIC] Pattern fired:', pattern, '| Accepted by UA:', accepted);
+  } catch (err) {
+    // Some browsers throw on vibrate() in certain contexts
+    console.error('[HAPTIC] navigator.vibrate() threw:', err);
+  }
+}
+
+/**
+ * parseVibTokensAndVibrate(vibTokens)
+ * ────────────────────────────────────
+ * Called by processSignal() whenever [VIB_…] tokens are
+ * detected in an incoming payload. Maps each token to its
+ * pre-defined pattern and fires triggerEmergencyVibration.
+ *
+ * Supported token → pattern mapping:
+ *   [VIB_COMMAND: SOS_PATTERN_ACTIVE]   → pattern_SOS
+ *   [VIB_COMMAND: LEFT_PATTERN_ACTIVE]  → pattern_LEFT
+ *   [VIB_COMMAND: RIGHT_PATTERN_ACTIVE] → pattern_RIGHT
+ *   [VIB_STAY_QUIET]                    → pattern_QUIET
+ *   [VIB_LEFT_PULSE]                    → pattern_LEFT
+ *   [VIB_RIGHT_LONG]                    → pattern_RIGHT
+ *   [VIB_SOS_PULSE] / any SOS variant   → pattern_SOS
+ *   All other [VIB_…] tokens            → pattern_OK (fallback)
+ *
+ * @param {string[]} vibTokens  e.g. ['[VIB_LEFT_PULSE]', '[VIB_STAY_QUIET]']
+ */
+function parseVibTokensAndVibrate(vibTokens) {
+  if (!vibTokens || vibTokens.length === 0) return;
+
+  // Determine dominant pattern from the first recognised token
+  const token = vibTokens[0].toUpperCase();
+
+  let pattern;
+  if (/SOS/.test(token))                                   pattern = haptic.pattern_SOS;
+  else if (/LEFT/.test(token))                             pattern = haptic.pattern_LEFT;
+  else if (/RIGHT/.test(token))                            pattern = haptic.pattern_RIGHT;
+  else if (/QUIET|SILENT|STEALTH/.test(token))             pattern = haptic.pattern_QUIET;
+  else                                                     pattern = haptic.pattern_OK;
+
+  triggerEmergencyVibration(pattern);
+}
+
+/**
+ * markUserInteraction()
+ * ─────────────────────
+ * Call once from any user-initiated event to satisfy the
+ * browser's gesture requirement. Idempotent.
+ */
+function markUserInteraction() {
+  if (!haptic.userHasInteracted) {
+    haptic.userHasInteracted = true;
+    console.log('[HAPTIC] User interaction registered — haptic feedback armed.');
+  }
+}
+/* ══ End Haptic Engine ══════════════════════════ */
+
+/* ─── Utilities ──────────────────────────────── */
+function now() {
+  return new Date().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+function el(id) { return document.getElementById(id); }
+
+/* ─── Vibration Visualizer ───────────────────── */
+const VIB_BARS = 20;
+(function initVibBars() {
+  const wrap = el('vib-bars');
+  for (let i = 0; i < VIB_BARS; i++) {
+    const b = document.createElement('div');
+    b.className = 'vib-bar';
+    b.style.height = '4px';
+    wrap.appendChild(b);
+  }
+})();
+
+function animateVib(tokens) {
+  const bars = document.querySelectorAll('.vib-bar');
+  if (!tokens || tokens.length === 0) return;
+
+  clearTimeout(state.vibTimeout);
+  let frame = 0;
+  const totalFrames = 30;
+
+  function tick() {
+    bars.forEach((b, i) => {
+      const active = Math.random() > 0.45;
+      const h = active ? Math.floor(Math.random() * 50 + 10) : 4;
+      b.style.height = h + 'px';
+      b.classList.toggle('active', active);
+    });
+    frame++;
+    if (frame < totalFrames) {
+      state.vibTimeout = setTimeout(tick, 80);
+    } else {
+      bars.forEach(b => { b.style.height = '4px'; b.classList.remove('active'); });
+    }
+  }
+  tick();
+}
+
+/* ─── Tag Parsing ────────────────────────────── */
+function parseMessage(text, source) {
+  const tags = {
+    isFire:     /\[FIRE_HAZARD\]/i.test(text) || /fire|flame|blaze|smoke|incendio|brand/i.test(text),
+    isFlood:    /flood|tsunami|inundation|diluvio|hochwasser/i.test(text),
+    isQuake:    /earthquake|seismic|tremor|terremoto/i.test(text),
+    isHostage:  /\[VIB_/i.test(text) || /hostage|stealth/i.test(text),
+    isTrapped:  /\[MEDICAL_ASSISTANCE\]/i.test(text) === false && /trapped|injured|under.*rubble|atrapado|lesionado/i.test(text),
+    isMedical:  /\[MEDICAL_ASSISTANCE\]/i.test(text),
+    isSOS:      /\[SOS_ALERT\]/i.test(text) || /sos_status.*activated/i.test(text),
+    isNav:      /\[NAVIGATION_EXIT\]/i.test(text),
+  };
+
+  // Extract [ENGLISH_SUMMARY: ...]
+  const summaryMatch = text.match(/\[ENGLISH_SUMMARY:\s*([^\]]+)\]/i);
+  const summary = summaryMatch ? summaryMatch[1].trim() : null;
+
+  // Extract [INTENT_TAG: ...]
+  const intentMatch = text.match(/\[INTENT_TAG:\s*([^\]]+)\]/i);
+  const intent = intentMatch ? intentMatch[1].trim() : null;
+
+  // Extract [VIB_...] tokens
+  const vibTokens = [...text.matchAll(/\[VIB_[A-Z_]+\]/g)].map(m => m[0]);
+
+  // Determine primary type
+  let type = 'normal';
+  if (tags.isSOS)     type = 'sos';
+  else if (tags.isHostage) type = 'hostage';
+  else if (tags.isFire) type = 'fire';
+  else if (tags.isFlood) type = 'flood';
+  else if (tags.isQuake) type = 'quake';
+  else if (tags.isMedical) type = 'medical';
+  else if (tags.isTrapped) type = 'trapped';
+
+  return { tags, type, summary, intent, vibTokens };
+}
+
+/* ─── UI Updaters ────────────────────────────── */
+function updateStats(parsed) {
+  state.counts.total++;
+  if (parsed.tags.isFire || parsed.tags.isFlood || parsed.tags.isQuake) state.counts.fire++;
+  if (parsed.tags.isMedical) state.counts.medical++;
+  if (parsed.tags.isHostage) state.counts.hostage++;
+  if (parsed.tags.isSOS) state.counts.sos++;
+
+  el('stat-total').textContent   = state.counts.total;
+  el('stat-fire').textContent    = state.counts.fire;
+  el('stat-medical').textContent = state.counts.medical;
+  el('stat-hostage').textContent = state.counts.hostage;
+  el('stat-sos').textContent     = state.counts.sos;
+  el('stat-time').textContent    = now();
+}
+
+function updateModes(tags) {
+  el('mode-fire').className    = 'mode-pill' + (tags.isFire    ? ' active-fire'    : '');
+  el('mode-flood').className   = 'mode-pill' + (tags.isFlood   ? ' active-flood'   : '');
+  el('mode-quake').className   = 'mode-pill' + (tags.isQuake   ? ' active-quake'   : '');
+  el('mode-hostage').className = 'mode-pill' + (tags.isHostage ? ' active-hostage' : '');
+  el('mode-trapped').className = 'mode-pill' + (tags.isTrapped ? ' active-trapped' : '');
+  el('mode-medical').className = 'mode-pill' + (tags.isMedical ? ' active-medical' : '');
+}
+
+function toggleSOS(active) {
+  state.sosActive = active;
+  el('sos-banner').classList.toggle('active', active);
+}
+
+function simulateSensors(tags) {
+  if (tags.isFire) {
+    el('sensor-a').className = 'sensor-val crit'; el('sensor-a').textContent = (Math.floor(Math.random()*100)+400) + '°C';
+    el('sensor-b').className = 'sensor-val warn'; el('sensor-b').textContent = (Math.floor(Math.random()*50)+150) + '°C';
+    el('sensor-smoke').className = 'sensor-val crit'; el('sensor-smoke').textContent = (Math.floor(Math.random()*300)+700) + 'ppm';
+    el('exit-a').className = 'sensor-val warn'; el('exit-a').textContent = 'BLOCKED';
+  }
+  if (tags.isFlood) {
+    el('exit-c').className = 'sensor-val crit'; el('exit-c').textContent = 'FLOODED';
+  }
+  if (tags.isMedical) {
+    el('sensor-hr').className = 'sensor-val crit'; el('sensor-hr').textContent = (Math.floor(Math.random()*40)+130) + ' bpm';
+  }
+  if (tags.isNav) {
+    el('exit-b').className = 'sensor-val'; el('exit-b').style.color = 'var(--accent-nav)'; el('exit-b').textContent = 'OPEN';
+  }
+}
+
+/* ─── Message Card Rendering ─────────────────── */
+function renderCard(text, source, parsed) {
+  const feed = el('message-feed');
+
+  // Hide empty state
+  const empty = el('empty-state');
+  if (empty) empty.style.display = 'none';
+
+  const card = document.createElement('div');
+  card.className = `msg-card type-${parsed.type}`;
+
+  const badges = buildBadges(parsed);
+  const vibHtml = parsed.vibTokens.length
+    ? `<div class="vib-tokens">${parsed.vibTokens.map(t=>`<span class="vib-token">${t}</span>`).join('')}</div>`
+    : '';
+  const summaryHtml = parsed.summary
+    ? `<div class="msg-summary"><div class="msg-summary-lbl">📡 English Summary for Responders</div>${parsed.summary}</div>`
+    : '';
+  const intentHtml = parsed.intent
+    ? `<span class="badge badge-intent">Intent: ${parsed.intent}</span>` : '';
+
+  const srcIcon = source === 'mic' ? '🎙️' : source === 'speaker' ? '🔊' : '💬';
+
+  card.innerHTML = `
+    <div class="msg-header">
+      <div class="msg-badges">${badges}${intentHtml}</div>
+      <div class="msg-time">${now()}</div>
+    </div>
+    <div class="msg-source-row">
+      <span class="msg-source-tag">${srcIcon} ${source.toUpperCase()}</span>
+    </div>
+    <div class="msg-body">${escapeHtml(text)}</div>
+    ${vibHtml}
+    ${summaryHtml}
+  `;
+
+  feed.appendChild(card);
+  feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
+
+  // Side log entry
+  addLog(parsed.type, source, text, parsed.summary);
+}
+
+function buildBadges(parsed) {
+  let h = '';
+  if (parsed.tags.isSOS)     h += `<span class="badge badge-sos">🆘 SOS ALERT</span>`;
+  if (parsed.tags.isFire)    h += `<span class="badge badge-fire">🔥 FIRE</span>`;
+  if (parsed.tags.isFlood)   h += `<span class="badge badge-flood">🌊 FLOOD</span>`;
+  if (parsed.tags.isQuake)   h += `<span class="badge badge-quake">🌍 EARTHQUAKE</span>`;
+  if (parsed.tags.isHostage) h += `<span class="badge badge-hostage">🤫 HOSTAGE/STEALTH</span>`;
+  if (parsed.tags.isMedical) h += `<span class="badge badge-medical">🏥 MEDICAL</span>`;
+  if (parsed.tags.isTrapped) h += `<span class="badge badge-trapped">⚙️ TRAPPED</span>`;
+  if (parsed.tags.isNav)     h += `<span class="badge badge-nav">🚪 NAVIGATE OUT</span>`;
+  if (!h) h = `<span class="badge" style="background:rgba(255,255,255,0.05);color:var(--text-muted);border-color:var(--border)">📡 SIGNAL</span>`;
+  return h;
+}
+
+function addLog(type, source, text, summary) {
+  const log = el('side-log');
+  const icons = {fire:'🔥', flood:'🌊', quake:'🌍', hostage:'🤫', trapped:'⚙️', medical:'🏥', sos:'🆘', normal:'📡'};
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  const preview = summary || text.slice(0, 60) + (text.length > 60 ? '…' : '');
+  entry.innerHTML = `
+    <span class="log-ts">${now()}</span>
+    <span class="log-icon">${icons[type] || '📡'}</span>
+    <span class="log-msg"><strong>${source.toUpperCase()}</strong> ${escapeHtml(preview)}</span>
+  `;
+  log.appendChild(entry);
+  log.scrollTo({top: log.scrollHeight, behavior: 'smooth'});
+}
+
+function escapeHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ─── Main Signal Processing ─────────────────── */
+function processSignal(text, source = 'chat') {
+  const parsed = parseMessage(text, source);
+
+  // ══ STEALTH MODE: suppress text + notifications, vib-only output ══
+  if (state.stealthMode) {
+    animateVib(['[VIB_STAY_QUIET]']);
+    triggerEmergencyVibration(haptic.pattern_QUIET);
+    addLog('hostage', source, '[STEALTH] Signal classified — vibration only.', null);
+    return;
+  }
+
+  renderCard(text, source, parsed);
+  updateStats(parsed);
+  updateModes(parsed.tags);
+  simulateSensors(parsed.tags);
+
+  // ══ Alert Engine — Notification API + Vibration per state ══
+  if (parsed.tags.isSOS) {
+    toggleSOS(true);
+    fireNotification('🆘 SOS ALERT', 'Priority-one distress signal. Immediate response required.', 'critical');
+    triggerEmergencyVibration(haptic.pattern_SOS);
+  } else if (parsed.tags.isFire) {
+    fireNotification('🔥 FIRE HAZARD', 'Fire detected. Evacuate via nearest exit immediately.', 'critical');
+    triggerEmergencyVibration([400, 100, 400, 100, 800]);
+  } else if (parsed.tags.isFlood) {
+    fireNotification('🌊 FLOOD ALERT', 'Flood detected. Move to highest elevation now.', 'critical');
+    triggerEmergencyVibration([600, 200, 600]);
+  } else if (parsed.tags.isMedical) {
+    fireNotification('🏥 MEDICAL EMERGENCY', 'Medical assistance required. Responders alerted.', 'high');
+    triggerEmergencyVibration([200, 100, 200, 100, 200]);
+  } else if (parsed.tags.isHostage) {
+    if (!state.stealthMode) toggleStealthMode();
+  }
+
+  // VIB tokens override above if present
+  if (parsed.vibTokens.length > 0) {
+    animateVib(parsed.vibTokens);
+    parseVibTokensAndVibrate(parsed.vibTokens);
+  }
+}
+
+/* ─── Demo Input ─────────────────────────────── */
+function sendDemoMessage() {
+  const input = el('demo-input');
+  const text  = input.value.trim();
+  if (!text) return;
+  markUserInteraction(); // arm haptic on first send
+  processSignal(text, 'chat');
+  input.value = '';
+}
+
+el('demo-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendDemoMessage();
+});
+
+/* ─── Preset Scenarios ───────────────────────── */
+const SCENARIOS = {
+  fire: [
+    `[FIRE_HAZARD] 🔥 EXIT IMMEDIATELY. Use stairwell B. Cover mouth. Stay low. Do NOT use lifts.\n\n[ENGLISH_SUMMARY: Fire detected on floor 3. User instructed to evacuate via stairwell B immediately.]`,
+    `[FIRE_HAZARD][NAVIGATION_EXIT] Fire spreading to east wing. Thermal Zone A: 480°C. Use emergency exit marked GREEN. Crawl below smoke line.\n\n[INTENT_TAG: FIRE_EVACUATION]\n[ENGLISH_SUMMARY: User reporting fire in east wing. Navigate to green exit immediately.]`
+  ],
+  flood: [
+    `🌊 FLOOD ALERT. Move to highest floor now. Avoid ground floor and basement. Keep phone dry. Wait for rescue signal.\n\n[INTENT_TAG: FLOOD_ESCAPE]\n[ENGLISH_SUMMARY: Flood scenario detected. User directed to move to highest floor and await rescue.]`
+  ],
+  hostage: [
+    `[VIB_STAY_QUIET] [VIB_LEFT_PULSE] [VIB_RIGHT_LONG] [VIB_LEFT_PULSE]`,
+    `[VIB_RIGHT_LONG] [VIB_STAY_QUIET] [VIB_LEFT_PULSE] [VIB_STAY_QUIET] [VIB_RIGHT_LONG]`
+  ],
+  trapped: [
+    `⚙️ Stay calm. Breathe slowly. Tap the pipe above you — three taps every 30 seconds. Rescue team is 8 minutes away. Conserve your phone battery.\n\n[MEDICAL_ASSISTANCE]\n[INTENT_TAG: TRAPPED_ALIVE]\n[ENGLISH_SUMMARY: User trapped under rubble. Instructed to tap pipes for location. Rescue ETA 8 minutes.]`
+  ],
+  medical: [
+    `[MEDICAL_ASSISTANCE] Apply pressure to the wound. Use your shirt or cloth. Keep the person warm. Do NOT move them if spine injury is suspected. Help is 6 minutes out.\n\n[INTENT_TAG: MEDICAL_EMERGENCY]\n[ENGLISH_SUMMARY: Medical emergency reported. Bystander instructed to apply pressure and keep patient still.]`
+  ],
+  sos: [
+    `[SOS_ALERT] ⚠ SOS STATUS ACTIVATED. All responders: priority one distress signal received. Thermal Sensor data: Zone A 520°C, Smoke 900ppm. Last known position: Floor 4, Sector Delta.\n\n[MEDICAL_ASSISTANCE][FIRE_HAZARD]\n[INTENT_TAG: SOS_ACTIVATED]\n[ENGLISH_SUMMARY: SOS Alert triggered. Critical fire conditions. Response team dispatched to Floor 4 Sector Delta.]`
+  ],
+};
+
+function fireScenario(type) {
+  const msgs = SCENARIOS[type];
+  if (!msgs) return;
+  markUserInteraction(); // arm haptic on scenario button press
+  const text = msgs[Math.floor(Math.random() * msgs.length)];
+  processSignal(text, 'system');
+}
+
+/* ─── Clear Feed ─────────────────────────────── */
+function clearFeed() {
+  const feed = el('message-feed');
+  feed.innerHTML = `
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">📡</div>
+      <div class="empty-title">Awaiting Distress Signals</div>
+      <div class="empty-sub">Connect to VRCT WebSocket or use the scenario buttons below to simulate a crisis event.</div>
+    </div>`;
+  toggleSOS(false);
+  el('side-log').innerHTML = '';
+  state.counts = {total:0,fire:0,medical:0,hostage:0,sos:0};
+  el('stat-total').textContent=el('stat-fire').textContent=el('stat-medical').textContent=
+  el('stat-hostage').textContent=el('stat-sos').textContent='0';
+  el('stat-time').textContent='—';
+  document.querySelectorAll('.mode-pill').forEach(p => p.className='mode-pill');
+}
+
+/* ─── WebSocket (VRCT) ───────────────────────── */
+function setConnState(s) {
+  const badge = el('conn-badge');
+  const label = el('conn-label');
+  badge.className = 'conn-badge ' + s;
+  if (s === 'connected')    label.textContent = 'Connected';
+  else if (s === 'connecting') label.textContent = 'Connecting…';
+  else label.textContent = 'Disconnected';
+}
+
+function connectWS() {
+  const url = el('ws-url').value.trim() || 'ws://127.0.0.1:2231';
+  if (state.ws) { state.ws.close(); state.ws = null; }
+
+  setConnState('connecting');
+  try {
+    state.ws = new WebSocket(url);
+
+    state.ws.onopen = () => {
+      setConnState('connected');
+      addLog('normal', 'system', 'WebSocket connected to ' + url);
+    };
+
+    state.ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        // VRCT sends { type:"SENT"|"RECEIVED"|"CHAT", message, translation, src_languages, dst_languages }
+        const type   = data.type || 'CHAT';
+        const source = type === 'SENT' ? 'mic' : type === 'RECEIVED' ? 'speaker' : 'chat';
+        // Prefer translation if present, else raw message
+        const text   = (data.translation && data.translation[0]) || data.message || JSON.stringify(data);
+        processSignal(text, source);
+      } catch (e) {
+        // Raw string message
+        processSignal(ev.data, 'system');
+      }
+    };
+
+    state.ws.onerror = () => setConnState('disconnected');
+    state.ws.onclose = () => {
+      setConnState('disconnected');
+      addLog('normal', 'system', 'WebSocket disconnected');
+    };
+  } catch (e) {
+    setConnState('disconnected');
+    addLog('normal', 'system', 'Failed to connect: ' + e.message);
+  }
+}
+
+/* ─── Clock ──────────────────────────────────── */
+function updateClock() {
+  if (state.counts.total > 0) el('stat-time').textContent = now();
+}
+setInterval(updateClock, 1000);
+
+/* ─── Auto-connect on load + shortcut URL handling ──────────── */
+window.addEventListener('load', () => {
+  addLog('normal', 'system', 'Crisis Response Dashboard initialized. Gemini Flash engine active.');
+  addLog('normal', 'system', 'Click "Connect" to link with VRCT WebSocket, or use scenario buttons to demo.');
+
+  /* Handle manifest shortcuts: ?shortcut=sos auto-fires SOS scenario */
+  const params = new URLSearchParams(window.location.search);
+  const shortcut = params.get('shortcut');
+  if (shortcut === 'sos') {
+    setTimeout(() => {
+      markUserInteraction();
+      fireScenario('sos');
+      addLog('sos', 'system', 'SOS shortcut triggered from home screen icon.');
+    }, 800);
+  } else if (shortcut === 'dashboard') {
+    addLog('normal', 'system', 'Launched from home screen shortcut — Dashboard view active.');
+  }
+
+  /* If launched as PWA standalone, log it */
+  if (window.matchMedia('(display-mode: standalone)').matches) {
+    addLog('normal', 'system', '📲 Running as installed PWA — offline-first mode active.');
+  }
+});
+
+/* ══════════════════════════════════════════════
+   VICTIM MULTILINGUAL CHATBOT
+══════════════════════════════════════════════ */
+
+const chatState = {
+  open: false,
+  activeTab: 'victim',      // 'victim' | 'responder'
+  detectedLang: 'en',
+  detectedLangName: 'English',
+  unread: 0,
+  translating: false,
+};
+
+/* Language code → display name + flag emoji */
+const LANG_FLAGS = {
+  en:'🇬🇧', hi:'🇮🇳', ar:'🇸🇦', es:'🇪🇸', fr:'🇫🇷', de:'🇩🇪',
+  zh:'🇨🇳', ja:'🇯🇵', ko:'🇰🇷', pt:'🇧🇷', ru:'🇷🇺', it:'🇮🇹',
+  tr:'🇹🇷', nl:'🇳🇱', pl:'🇵🇱', uk:'🇺🇦', bn:'🇧🇩', pa:'🇮🇳',
+  ta:'🇮🇳', te:'🇮🇳', mr:'🇮🇳', gu:'🇮🇳', ur:'🇵🇰', fa:'🇮🇷',
+  vi:'🇻🇳', th:'🇹🇭', id:'🇮🇩', ms:'🇲🇾', sw:'🇰🇪', ha:'🇳🇬',
+  yo:'🇳🇬', am:'🇪🇹', so:'🇸🇴', tl:'🇵🇭', ro:'🇷🇴', cs:'🇨🇿',
+  hu:'🇭🇺', sv:'🇸🇪', fi:'🇫🇮', no:'🇳🇴', da:'🇩🇰', el:'🇬🇷',
+  he:'🇮🇱', default:'🌐'
+};
+
+function getLangFlag(code) {
+  const base = code ? code.split('-')[0].toLowerCase() : 'en';
+  return LANG_FLAGS[base] || LANG_FLAGS.default;
+}
+
+function getLangName(code) {
+  try { return new Intl.DisplayNames(['en'], {type:'language'}).of(code) || code; }
+  catch { return code; }
+}
+
+/* ─── Google Translate (unofficial free endpoint) ─── */
+async function googleTranslate(text, targetLang, sourceLang = 'auto') {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  const translation = data[0].map(x => x && x[0] ? x[0] : '').join('');
+  const detected    = data[2] || sourceLang;
+  return { translation: translation.trim(), detectedLang: detected };
+}
+
+/* ─── Drawer open/close ─── */
+function toggleChat() {
+  chatState.open = !chatState.open;
+  el('chat-drawer').classList.toggle('open', chatState.open);
+  if (chatState.open) {
+    // reset unread
+    chatState.unread = 0;
+    el('chat-unread').style.display = 'none';
+    el('chat-unread').textContent   = '0';
+    setTimeout(() => el('chat-input').focus(), 350);
+  }
+}
+
+function switchChatTab(tab) {
+  chatState.activeTab = tab;
+  el('tab-victim').classList.toggle('active',    tab === 'victim');
+  el('tab-responder').classList.toggle('active', tab === 'responder');
+  el('chat-messages').style.display         = tab === 'victim'    ? 'flex' : 'none';
+  el('responder-transcript').style.display  = tab === 'responder' ? 'flex' : 'none';
+}
+
+/* ─── Intent → Crisis Response Templates (English) ─── */
+function buildEnglishResponse(text) {
+  const t = text.toLowerCase();
+  // Location report
+  if (/floor|storey|room|building|sector|zone|block|level|near|next to|beside|underneath|under|above|roof|basement|corridor|hall|stairwell/.test(t)) {
+    return {
+      text: "Thank you for your location. Help is on the way. Stay where you are and keep your phone on. If you can, tap the wall or pipe with 3 sharp knocks every 30 seconds.",
+      tags: ['[NAVIGATION_EXIT]'],
+      type: 'nav'
+    };
+  }
+  // Injury
+  if (/bleed|blood|broken|fracture|pain|hurt|injury|injured|wound|unconscious|faint|breathing|chest|pulse|heart/.test(t)) {
+    return {
+      text: "[MEDICAL_ASSISTANCE] Stay still. If bleeding, press a cloth firmly on the wound. Do not move if you suspect a spine injury. Breathe slowly and calmly. Medical responders are alerted and on their way.",
+      tags: ['[MEDICAL_ASSISTANCE]'],
+      type: 'medical'
+    };
+  }
+  // Fire / smoke
+  if (/fire|smoke|flame|burn|burning|blaze|hot|heat|fumes/.test(t)) {
+    return {
+      text: "[FIRE_HAZARD] MOVE NOW. Crawl low under the smoke. Cover your mouth with your shirt. Use the nearest stairwell — do NOT use the lift. Exit is marked with a green sign.",
+      tags: ['[FIRE_HAZARD]', '[NAVIGATION_EXIT]'],
+      type: 'fire'
+    };
+  }
+  // Flood
+  if (/water|flood|drowning|drown|rising|wet/.test(t)) {
+    return {
+      text: "Move to the highest level you can reach immediately. Do not enter fast-moving water. Stay elevated. Signal from a window if you can. Rescue teams are en route.",
+      tags: ['[NAVIGATION_EXIT]'],
+      type: 'nav'
+    };
+  }
+  // Trapped
+  if (/stuck|trap|trapped|cannot move|can't move|rubble|debris|collapsed|buried/.test(t)) {
+    return {
+      text: "Stay calm. Tap the wall or pipe with 3 sharp knocks every 30 seconds so rescuers can locate you. Conserve your phone battery. Do not shout continuously — save your energy. We are locating you.",
+      tags: ['[NAVIGATION_EXIT]'],
+      type: 'trapped'
+    };
+  }
+  // SOS / help
+  if (/sos|help|emergency|danger|please|save me|mayday|urgent/.test(t)) {
+    return {
+      text: "[SOS_ALERT] Your distress signal has been received. Emergency responders are being dispatched to your last known position. Stay on this chat and keep sending updates.",
+      tags: ['[SOS_ALERT]'],
+      type: 'sos'
+    };
+  }
+  // Medical
+  if (/sick|nausea|dizzy|headache|vomit|fever|allerg/.test(t)) {
+    return {
+      text: "[MEDICAL_ASSISTANCE] Understood. Sit down and breathe slowly. Do not eat or drink anything. Medical team is aware and heading to you. Keep sending your exact location.",
+      tags: ['[MEDICAL_ASSISTANCE]'],
+      type: 'medical'
+    };
+  }
+  // Default
+  return {
+    text: "Your message has been received and logged. Emergency responders have been notified. Please describe your exact location and if you are injured. We are here with you.",
+    tags: [],
+    type: 'normal'
+  };
+}
+
+/* ─── Append bubble to victim view ─── */
+function appendVictimBubble(originalText, enText, langCode, langName) {
+  const feed = el('chat-messages');
+  const empty = el('chat-empty');
+  if (empty) empty.style.display = 'none';
+
+  const flag = getLangFlag(langCode);
+  const isSameLang = langCode === 'en' || langCode.startsWith('en');
+  const enBlock = isSameLang ? '' : `
+    <div class="bub-en">
+      <div class="bub-en-label">📡 English (Responder)</div>
+      ${escapeHtml(enText)}
+    </div>`;
+
+  const div = document.createElement('div');
+  div.className = 'bubble-victim';
+  div.innerHTML = `
+    <div class="bub-body">${escapeHtml(originalText)}</div>
+    ${enBlock}
+    <div class="bub-meta">
+      <span>${flag}</span>
+      <span class="bub-lang-pill">${langName}</span>
+      <span>${now()}</span>
+    </div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function appendTypingIndicator() {
+  const feed = el('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'typing-indicator'; div.id = 'typing-ind';
+  div.innerHTML = `<span style="font-size:13px;">🤖 Crisis AI</span>
+    <div class="typing-dots"><span></span><span></span><span></span></div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+  return div;
+}
+
+function appendAIBubble(nativeText, enText, tags, langCode) {
+  const feed  = el('chat-messages');
+  const flag  = getLangFlag(langCode);
+  const isSameLang = langCode === 'en' || langCode.startsWith('en');
+  const showEn = !isSameLang && enText !== nativeText;
+
+  let tagsHtml = '';
+  tags.forEach(t => {
+    let cls = '';
+    if (t.includes('MEDICAL')) cls = 'medical';
+    else if (t.includes('FIRE'))    cls = 'fire';
+    else if (t.includes('NAV'))     cls = 'nav';
+    else if (t.includes('SOS'))     cls = 'sos';
+    tagsHtml += `<span class="bub-tag ${cls}">${t}</span>`;
+  });
+
+  const enBlock = showEn ? `
+    <div class="bub-en">
+      <div class="bub-en-label">📡 English (Responder)</div>
+      ${escapeHtml(enText)}
+    </div>` : '';
+
+  const div = document.createElement('div');
+  div.className = 'bubble-ai';
+  div.innerHTML = `
+    <div class="bub-body">
+      <span class="ai-icon">🤖</span>${escapeHtml(nativeText)}
+      ${tagsHtml ? `<div class="bub-tags">${tagsHtml}</div>` : ''}
+    </div>
+    ${enBlock}
+    <div class="bub-meta">${flag} Crisis AI · ${now()}</div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+/* ─── Append to responder transcript ─── */
+function appendResponderEntry(victimOriginal, victimEn, aiEn, langName, tags) {
+  const rt = el('responder-transcript');
+  const div = document.createElement('div');
+  div.style.cssText = 'background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;animation:cardIn 0.3s ease;';
+  div.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;">📍 Victim · ${langName}</span>
+      <span style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${now()}</span>
+    </div>
+    <div style="font-size:13px;color:var(--text-primary);margin-bottom:6px;"><strong>Original:</strong> ${escapeHtml(victimOriginal)}</div>
+    <div style="font-size:12px;color:var(--accent-medical);margin-bottom:8px;"><strong>Translated (EN):</strong> ${escapeHtml(victimEn)}</div>
+    <div style="font-size:12px;color:var(--text-secondary);padding:8px 10px;background:rgba(74,222,128,0.05);border:1px solid rgba(74,222,128,0.12);border-radius:8px;">
+      <strong style="color:var(--accent-nav);">AI Response (EN):</strong> ${escapeHtml(aiEn)}
+    </div>
+    ${tags.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">${tags.map(t=>`<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(245,158,11,0.15);color:var(--accent-trapped);border:1px solid rgba(245,158,11,0.3);">${t}</span>`).join('')}</div>` : ''}`;
+  rt.appendChild(div);
+  rt.scrollTop = rt.scrollHeight;
+}
+
+/* ─── Also push to main feed (responder dashboard) ─── */
+function pushVictimToFeed(victimEn, langName, flag, aiEn, tags) {
+  const feed = el('message-feed');
+  const empty = el('empty-state');
+  if (empty) empty.style.display = 'none';
+
+  const card = document.createElement('div');
+  card.className = 'msg-card type-victim';
+  card.innerHTML = `
+    <div class="msg-header">
+      <div class="msg-badges">
+        <span class="badge" style="background:rgba(34,211,238,0.15);color:var(--accent-medical);border:1px solid rgba(34,211,238,0.3);">💬 VICTIM CHAT</span>
+        <span class="badge badge-intent">${flag} ${langName}</span>
+        ${tags.map(t=>`<span class="badge badge-medical">${t}</span>`).join('')}
+      </div>
+      <div class="msg-time">${now()}</div>
+    </div>
+    <div class="msg-source-row"><span class="msg-source-tag">🌍 MULTILINGUAL VICTIM SIGNAL (auto-translated)</span></div>
+    <div class="msg-body" style="color:var(--text-secondary);">${escapeHtml(victimEn)}</div>
+    <div class="msg-summary">
+      <div class="msg-summary-lbl">🤖 AI Response (English)</div>
+      ${escapeHtml(aiEn)}
+    </div>`;
+  feed.appendChild(card);
+  feed.scrollTop = feed.scrollHeight;
+
+  // update stats
+  state.counts.total++;
+  el('stat-total').textContent = state.counts.total;
+  el('stat-time').textContent  = now();
+  addLog('medical', 'victim-chat', langName + ': ' + victimEn.slice(0,60), null);
+}
+
+/* ─── Main send handler ─── */
+async function sendVictimMessage() {
+  const input = el('chat-input');
+  const text  = input.value.trim();
+  if (!text || chatState.translating) return;
+
+  markUserInteraction(); // arm haptic on chat send (victim chat = real interaction)
+  input.value = '';
+  input.style.height = 'auto';
+  chatState.translating = true;
+  el('chat-send-btn').disabled = true;
+
+  // 1. Detect language + translate to English
+  let victimEn = text;
+  let detLang  = 'en';
+  let detName  = 'English';
+  try {
+    const res = await googleTranslate(text, 'en', 'auto');
+    victimEn = res.translation;
+    detLang  = res.detectedLang;
+    detName  = getLangName(detLang);
+  } catch(e) {
+    victimEn = text; // fallback: assume English
+    detLang  = 'en'; detName = 'English';
+  }
+
+  // Update chatState
+  chatState.detectedLang = detLang;
+  chatState.detectedLangName = detName;
+
+  // Update lang bar
+  el('lang-flag').textContent  = getLangFlag(detLang);
+  el('lang-name').textContent  = detName;
+  el('lang-code').textContent  = '(' + detLang + ')';
+  el('translate-badge').style.display = 'inline-flex';
+
+  // 2. Show victim bubble
+  appendVictimBubble(text, victimEn, detLang, detName);
+
+  // 3. Show typing
+  const typingEl = appendTypingIndicator();
+
+  // 4. Build English AI response
+  const aiResponse = buildEnglishResponse(victimEn);
+  const aiEnText   = aiResponse.text;
+
+  // 5. Translate AI response back to victim's language
+  await new Promise(r => setTimeout(r, 900 + Math.random()*600)); // simulate think time
+  typingEl.remove();
+
+  let aiNativeText = aiEnText;
+  if (detLang !== 'en' && !detLang.startsWith('en')) {
+    try {
+      const back = await googleTranslate(aiEnText, detLang, 'en');
+      aiNativeText = back.translation;
+    } catch { aiNativeText = aiEnText; }
+  }
+
+  // 6. Show AI bubble (in victim's language + English)
+  appendAIBubble(aiNativeText, aiEnText, aiResponse.tags, detLang);
+
+  // 7. Append to responder transcript
+  appendResponderEntry(text, victimEn, aiEnText, detName, aiResponse.tags);
+
+  // 8. Push to main dashboard feed
+  pushVictimToFeed(victimEn, detName, getLangFlag(detLang), aiEnText, aiResponse.tags);
+
+  // 9. Unread badge if drawer is closed
+  if (!chatState.open) {
+    chatState.unread++;
+    el('chat-unread').textContent    = chatState.unread;
+    el('chat-unread').style.display  = 'flex';
+  }
+
+  chatState.translating = false;
+  el('chat-send-btn').disabled = false;
+  el('chat-input').focus();
+}
+
+/* ══════════════════════════════════════════════
+   SPEECH-TO-TEXT ENGINE
+   ──────────────────────────────────────────────
+   Primary  : Web Speech API (browser-native, multilingual)
+   Reference: speech-to-text-wavenet (Python/TF backend)
+     → Clone: c:/Users/Admin/spectra/speech-to-text-wavenet
+     → If local WS server is running at ws://127.0.0.1:5001,
+       transcripts are received from WaveNet and injected.
+     → Falls back to Web Speech API silently.
+══════════════════════════════════════════════ */
+const stt = {
+  recognition : null,
+  active      : false,
+  wavenetWs   : null,
+  wavenetUrl  : 'ws://127.0.0.1:5001',
+  finalText   : '',
+  supported   : ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
+};
+
+function initSTT() {
+  if (!stt.supported) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  stt.recognition = new SR();
+  stt.recognition.continuous      = true;
+  stt.recognition.interimResults  = true;
+  stt.recognition.maxAlternatives = 1;
+  // Hint with already-detected language for better accuracy
+  stt.recognition.lang = (chatState.detectedLang && chatState.detectedLang !== 'en')
+    ? chatState.detectedLang : '';
+
+  stt.recognition.onstart = () => {
+    stt.active = true;
+    el('chat-mic-btn').classList.add('recording');
+    el('chat-mic-btn').textContent = '⏹';
+    el('chat-mic-btn').title = 'Stop recording';
+    el('stt-status-bar').style.display = 'flex';
+    el('stt-status-bar').className = '';
+    el('stt-interim').textContent = 'Listening…';
+    el('stt-lang-badge').textContent = 'LIVE';
+    markUserInteraction();
+  };
+
+  stt.recognition.onresult = (ev) => {
+    let interim = '', final = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal) final += t + ' ';
+      else interim += t;
+    }
+    if (final) {
+      stt.finalText += final;
+      const inp = el('chat-input');
+      inp.value = stt.finalText.trim();
+      inp.style.height = 'auto';
+      inp.style.height = Math.min(inp.scrollHeight, 100) + 'px';
+    }
+    el('stt-interim').textContent = interim ||
+      (stt.finalText ? '✓ ' + stt.finalText.trim() : 'Listening…');
+  };
+
+  stt.recognition.onerror = (ev) => {
+    const msgs = {
+      'not-allowed' : 'Microphone access denied — allow mic in browser settings.',
+      'no-speech'   : 'No speech detected. Try speaking closer.',
+      'network'     : 'Network error during speech recognition.',
+      'aborted'     : 'Recording stopped.',
+    };
+    el('stt-interim').textContent = msgs[ev.error] || 'Error: ' + ev.error;
+    el('stt-lang-badge').textContent = '⚠';
+    el('stt-status-bar').className = 'stt-warn';
+    setTimeout(stopSTTUI, 3000);
+  };
+
+  stt.recognition.onend = () => {
+    if (stt.active) {
+      stopSTTUI();
+      const txt = stt.finalText.trim();
+      if (txt) {
+        el('chat-input').value = txt;
+        setTimeout(() => sendVictimMessage(), 350);
+      }
+    }
+  };
+}
+
+function startSTT() {
+  if (!stt.supported) { showSTTUnsupported(); return; }
+  stt.finalText = '';
+  el('chat-input').value = '';
+  initSTT(); // re-init so lang hint is fresh
+  try {
+    stt.recognition.start();
+  } catch(e) {
+    try { stt.recognition.stop(); } catch {}
+    setTimeout(() => { initSTT(); stt.recognition.start(); }, 400);
+  }
+}
+
+function stopSTT() {
+  stt.active = false;
+  try { if (stt.recognition) stt.recognition.stop(); } catch {}
+  stopSTTUI();
+}
+
+function stopSTTUI() {
+  stt.active = false;
+  const btn = el('chat-mic-btn');
+  btn.classList.remove('recording');
+  btn.textContent = '🎤';
+  btn.title = 'Speak in any language (WaveNet / Web Speech)';
+  setTimeout(() => { if (!stt.active) el('stt-status-bar').style.display = 'none'; }, 2200);
+}
+
+function toggleSTT() {
+  markUserInteraction();
+  stt.active ? stopSTT() : startSTT();
+}
+
+function showSTTUnsupported() {
+  const bar = el('stt-status-bar');
+  bar.style.display = 'flex';
+  bar.className = 'stt-warn';
+  el('stt-interim').textContent = 'Speech not supported here — use Chrome or Edge.';
+  el('stt-lang-badge').textContent = '⚠';
+  setTimeout(() => { bar.style.display = 'none'; bar.className = ''; }, 4000);
+}
+
+/* ── WaveNet backend integration (speech-to-text-wavenet) ──────
+   If you run the Python server locally:
+     cd c:/Users/Admin/spectra/speech-to-text-wavenet
+     pip install -r requirements.txt
+     python recognize.py --server  (custom WS server mode)
+   Connect at ws://127.0.0.1:5001 — sends { transcript: "..." }
+   See docker/README.md for Docker usage.
+─────────────────────────────────────────────────────────────── */
+function tryConnectWaveNet() {
+  try {
+    const ws = new WebSocket(stt.wavenetUrl);
+    ws.onopen  = () => {
+      stt.wavenetWs = ws;
+      addLog('normal','stt','WaveNet STT backend connected at ' + stt.wavenetUrl);
+    };
+    ws.onmessage = (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.transcript) {
+          el('chat-input').value = d.transcript;
+          el('stt-interim').textContent = '✓ WaveNet: ' + d.transcript;
+        }
+      } catch {}
+    };
+    ws.onerror = ws.onclose = () => { stt.wavenetWs = null; };
+  } catch { stt.wavenetWs = null; }
+}
+
+window.addEventListener('load', () => {
+  initSTT();                           // pre-warm Web Speech API
+  setTimeout(tryConnectWaveNet, 2500); // silent WaveNet probe
+});
+
+/* ─── Auto-resize textarea ─── */
+el('chat-input').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+});
+el('chat-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendVictimMessage(); }
+});
+</script>
+
+<!-- ═══ Stealth Mode · Notification API · ESP32 Bridge ═════════ -->
+<script>
+/* ── STEALTH MODE ENGINE ─────────────────────────────────────── */
+function toggleStealthMode() {
+  state.stealthMode = !state.stealthMode;
+  document.body.classList.toggle('stealth-mode', state.stealthMode);
+  el('stealth-btn').classList.toggle('active', state.stealthMode);
+  el('stealth-label').textContent = state.stealthMode ? 'STEALTH ON' : 'Stealth';
+  if (state.stealthMode) {
+    markUserInteraction();
+    triggerEmergencyVibration(haptic.pattern_QUIET);
+    toggleSOS(false);
+    addLog('hostage', 'system', '🤫 STEALTH MODE ACTIVE — text silenced, vibration-only.');
+  } else {
+    addLog('normal', 'system', '✅ Stealth Mode off — normal operation resumed.');
+  }
+}
+
+/* ── NOTIFICATION API ENGINE ─────────────────────────────────── */
+async function requestNotifPermission() {
+  if (!('Notification' in window) || Notification.permission !== 'default') return;
+  try { state.notifPermission = await Notification.requestPermission(); }
+  catch { state.notifPermission = 'denied'; }
+}
+function fireNotification(title, body, urgency) {
+  if (state.stealthMode) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, {
+      body, icon: './icon-192.png', badge: './icon-192.png',
+      tag: 'crisis-' + Date.now(), renotify: true,
+      requireInteraction: urgency === 'critical',
+      vibrate: urgency === 'critical' ? [400,100,400,100,800] : [200,100,200],
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch(e) { console.warn('[Notification]', e.message); }
+}
+document.addEventListener('click', function _rp() {
+  requestNotifPermission();
+  document.removeEventListener('click', _rp);
+}, { once: true });
+
+/* ── ESP32 SENSOR BRIDGE — Socket.IO Client ──────────────────── */
+const bridge = { socket: null, connected: false, url: 'http://localhost:5050' };
+
+function setBridgeBadge(on) {
+  bridge.connected = on;
+  const b = el('bridge-badge'), d = document.querySelector('.bridge-dot'), l = el('bridge-label');
+  if (!b) return;
+  b.className = 'bridge-badge' + (on ? ' connected' : '');
+  if (d) d.style.background = on ? 'var(--accent-nav)' : 'var(--text-muted)';
+  if (l) l.textContent = on ? 'ESP32 LIVE' : 'ESP32 —';
+}
+
+function updateSensorFromESP32(d) {
+  function sv(id, val, unit, w, c) {
+    const e = el(id); if (!e || val === undefined) return;
+    e.textContent = val + unit;
+    e.className = 'sensor-val' + (val >= c ? ' crit' : val >= w ? ' warn' : '');
+    e.classList.add('live-update');
+    setTimeout(() => e.classList.remove('live-update'), 500);
+  }
+  sv('sensor-a',    d.temp_c,         '°C',  60,  200);
+  sv('sensor-smoke', d.smoke_ppm,     'ppm', 200, 500);
+  sv('sensor-hr',   d.heartrate_bpm,  ' bpm', 100, 140);
+  if (d.co2 !== undefined) {
+    const e = el('sensor-b'); if (!e) return;
+    e.textContent = d.co2 + 'ppm';
+    e.className = 'sensor-val' + (d.co2 >= 2000 ? ' crit' : d.co2 >= 1000 ? ' warn' : '');
+    e.classList.add('live-update');
+    setTimeout(() => e.classList.remove('live-update'), 500);
+  }
+  if (d.audio_db !== undefined) {
+    const e = el('sensor-c'); if (!e) return;
+    e.textContent = d.audio_db + 'dB';
+    e.className = 'sensor-val' + (d.audio_db >= 110 ? ' crit' : d.audio_db >= 85 ? ' warn' : '');
+  }
+}
+
+function connectBridge(url) {
+  if (typeof io === 'undefined') {
+    addLog('normal','system','ℹ️ Socket.IO unavailable — run: python esp32_sensor_bridge.py --demo');
+    return;
+  }
+  if (bridge.socket) bridge.socket.disconnect();
+  bridge.url = url || bridge.url;
+  bridge.socket = io(bridge.url, { reconnectionDelay: 3000, transports: ['websocket','polling'] });
+  bridge.socket.on('connect',    ()  => { setBridgeBadge(true);  addLog('normal','system','📡 ESP32 Bridge connected at ' + bridge.url); });
+  bridge.socket.on('disconnect', ()  => { setBridgeBadge(false); addLog('normal','system','ESP32 Bridge disconnected.'); });
+  bridge.socket.on('connect_error', () => setBridgeBadge(false));
+  bridge.socket.on('sensor_update',   (d) => updateSensorFromESP32(d));
+  bridge.socket.on('emergency_alert', (d) => {
+    markUserInteraction();
+    processSignal(d.message || '[EMERGENCY] ESP32 alert.', 'ESP32-' + (d.zone || 'A'));
+    if (d.vib_pattern && d.vib_pattern.length) { triggerEmergencyVibration(d.vib_pattern); animateVib(['[VIB_ESP32]']); }
+    addLog(d.state === 'SOS' ? 'sos' : 'fire', 'esp32', '[' + d.state + '] Zone ' + d.zone + ' — ' + d.severity, null);
+  });
+  bridge.socket.on('bridge_status', (d) => addLog('normal','system','Bridge: ' + d.message));
+}
+
+// Silent auto-probe on load; user can also call connectBridge() manually
+window.addEventListener('load', () => setTimeout(() => connectBridge(), 3000));
+</script>
+
+<!-- ═══ Service Worker Registration ════════════════════════════ -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker
+        .register('./sw.js', { scope: './', updateViaCache: 'none' })
+        .then((reg) => {
+          console.log('[PWA] Service Worker registered. Scope:', reg.scope);
+
+          /* Check for updates every 60 seconds while page is open */
+          setInterval(() => reg.update(), 60_000);
+
+          /* Notify the user when a new SW version is waiting */
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('[PWA] New version available — refresh to update.');
+
+                /* Update toast */
+                const toast = document.createElement('div');
+                toast.id = 'sw-update-toast';
+                toast.style.cssText = [
+                  'position:fixed;bottom:calc(90px + env(safe-area-inset-bottom, 0px));left:50%;transform:translateX(-50%)',
+                  'background:#192134;border:1px solid rgba(34,211,238,0.4)',
+                  'color:#22d3ee;font-size:12px;font-weight:600;padding:10px 20px',
+                  'border-radius:20px;z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5)',
+                  'display:flex;align-items:center;gap:10px;cursor:pointer',
+                  'animation:cardIn 0.3s ease;white-space:nowrap'
+                ].join(';');
+                toast.innerHTML = '<span>🔄 Dashboard update ready</span><button style="background:rgba(34,211,238,0.2);border:1px solid rgba(34,211,238,0.4);color:#22d3ee;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Refresh</button>';
+                toast.querySelector('button').onclick = () => {
+                  /* Tell SW to skip waiting, then reload */
+                  newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  window.location.reload();
+                };
+                toast.onclick = (e) => { if (e.target === toast) toast.remove(); };
+                document.body.appendChild(toast);
+                setTimeout(() => toast?.remove(), 12000);
+              }
+            });
+          });
+        })
+        .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
+    });
+
+    /* Listen for the SW taking control (first install or after SKIP_WAITING) */
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      console.log('[PWA] Service Worker now controlling this page (offline-ready).');
+      /* Prevent double-reload loop */
+      if (!refreshing) {
+        refreshing = true;
+      }
+    });
+  } else {
+    console.warn('[PWA] Service Workers not supported in this browser.');
+  }
+
+  /* ── Install prompt interception ("Add to Home Screen") ──── */
+  let deferredInstallPrompt = null;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+
+    /* Show a subtle install banner after 3 seconds if not already installed */
+    setTimeout(() => {
+      if (!window.matchMedia('(display-mode: standalone)').matches) {
+        const banner = document.createElement('div');
+        banner.id = 'pwa-install-banner';
+        banner.style.cssText = [
+          /* safe-area-inset-bottom: respects iPhone home bar */
+          'position:fixed;bottom:calc(28px + env(safe-area-inset-bottom, 0px));left:50%;transform:translateX(-50%)',
+          'background:linear-gradient(135deg,#0e1420,#192134)',
+          'border:1px solid rgba(255,78,42,0.45)',
+          'color:#f0f4ff;font-size:13px;font-weight:600',
+          'padding:12px 22px;border-radius:30px;z-index:9999',
+          'box-shadow:0 0 28px rgba(255,78,42,0.25),0 6px 32px rgba(0,0,0,0.5)',
+          'display:flex;align-items:center;gap:12px;cursor:pointer',
+          'max-width:calc(100vw - 32px)',
+          'animation:cardIn 0.4s cubic-bezier(0.34,1.56,0.64,1)'
+        ].join(';');
+        banner.innerHTML = `
+          <span style="font-size:20px">📲</span>
+          <span>Install Crisis Dashboard as an App</span>
+          <button id="pwa-install-btn" style="
+            background:linear-gradient(135deg,#ff4e2a,#ff7043);
+            color:#fff;border:none;border-radius:16px;
+            padding:6px 16px;font-size:12px;font-weight:700;
+            cursor:pointer;font-family:inherit;
+            box-shadow:0 0 12px rgba(255,78,42,0.4);
+          ">Install</button>
+          <button id="pwa-dismiss-btn" style="
+            background:transparent;color:#8898aa;border:none;
+            font-size:18px;cursor:pointer;line-height:1;
+          ">×</button>
+        `;
+        document.body.appendChild(banner);
+
+        document.getElementById('pwa-install-btn').addEventListener('click', async () => {
+          if (deferredInstallPrompt) {
+            deferredInstallPrompt.prompt();
+            const { outcome } = await deferredInstallPrompt.userChoice;
+            console.log('[PWA] Install prompt outcome:', outcome);
+            deferredInstallPrompt = null;
+          }
+          banner.remove();
+        });
+
+        document.getElementById('pwa-dismiss-btn').addEventListener('click', () => banner.remove());
+      }
+    }, 3000);
+  });
+
+  window.addEventListener('appinstalled', () => {
+    console.log('[PWA] Crisis Response Dashboard installed successfully!');
+    deferredInstallPrompt = null;
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) banner.remove();
+  });
+</script>
+<!-- ══════════════════════════════════════════════════════════════ -->
+
+<!-- duplicate SW registration removed — single authoritative block above handles all updates -->
+
+</body>
+</html>
